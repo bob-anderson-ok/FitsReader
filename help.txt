@@ -1,0 +1,11 @@
+
+
+
+
+
+
+    The default image that is shown when the program starts will go away after
+    a successful selection of a FITS folder containing FITS files.
+
+    You can close this window at any time.
+
