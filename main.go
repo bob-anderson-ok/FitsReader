@@ -41,22 +41,36 @@ type Config struct {
 	timestamp            string
 }
 
+const DefaultImageName = "FITS-player-default-image.fits"
+
 //go:embed help.txt
 var helpText string
+
+//go:embed FITS-player-default-image.fits
+var defaultImageFile []byte
 
 var myWin Config
 
 func main() {
 	// Increasing the frequency of garbage collection reduces the 'flicker' that sometimes occurs
 	// as the contrast sliders are moved.
-	debug.SetGCPercent(10)
+	debug.SetGCPercent(5)
+	//runtime.LockOSThread()
+	//defer runtime.UnlockOSThread()
+
+	var permissions os.FileMode
+	permissions = 0666
+	err := os.WriteFile(DefaultImageName, defaultImageFile, permissions)
+	if err != nil {
+		panic(err)
+	}
 
 	myApp := app.New()
 	myWin.App = myApp
 
 	myWin.autoPlayEnabled = false
 
-	w := myApp.NewWindow("IOTA FITS video viewer")
+	w := myApp.NewWindow("IOTA FITS video player")
 	w.Resize(fyne.Size{Height: 800, Width: 1200})
 
 	myWin.parentWindow = w
@@ -89,10 +103,7 @@ func main() {
 	row1.Add(myWin.fileLabel)
 
 	myWin.timestampLabel = widget.NewLabel("timestamp goes here")
-	//myWin.frameCountLabel = widget.NewLabel("Frame count goes here")
 	row2 := container.NewHBox(layout.NewSpacer(), myWin.timestampLabel, layout.NewSpacer())
-	//row2.Add(myWin.frameCountLabel)
-	//row2.Add(myWin.timestampLabel)
 
 	myWin.fileSlider = widget.NewSlider(0, 1000)
 	myWin.fileSlider.OnChanged = func(value float64) { processFileSliderMove(value) }
@@ -283,7 +294,7 @@ func processFitsFolderSelection(path fyne.ListableURI, err error) {
 		}
 		myWin.fileIndex = 0
 		myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
-		fmt.Printf("%d fits files were found.\n", len(myWin.fitsFilePaths))
+		//fmt.Printf("%d fits files were found.\n", len(myWin.fitsFilePaths))
 	}
 	if len(myWin.fitsFilePaths) > 0 {
 		getFitsImage()
@@ -305,7 +316,6 @@ func showMetaData() {
 }
 
 func getFitsImage() fyne.CanvasObject {
-	defaultImagePath := "enhanced-image-0.fit"
 	fitsFilePath := ""
 
 	// None of the following hacks reduced the 'flashing' during playback.
@@ -315,12 +325,13 @@ func getFitsImage() fyne.CanvasObject {
 
 	// If no fits folder has been selected yet, use the default image
 	if len(myWin.fitsFilePaths) == 0 {
-		fitsFilePath = defaultImagePath
+		fitsFilePath = DefaultImageName
 	} else {
 		fitsFilePath = myWin.currentFilePath
 	}
 
 	myWin.fileLabel.SetText(fitsFilePath)
+	//myWin.fileLabel.Refresh()
 
 	r, err1 := os.Open(fitsFilePath)
 	if err1 != nil {
@@ -359,12 +370,15 @@ func getFitsImage() fyne.CanvasObject {
 			fyneImage.(*fltimg.Gray32).Min = float32(myWin.blackSlider.Value)
 		} else if kind == "Gray" {
 			stretch(fyneImage.(*image.Gray).Pix, myWin.blackSlider.Value, myWin.whiteSlider.Value)
+		} else if kind == "Gray16" {
+			stretch(fyneImage.(*image.Gray16).Pix, myWin.blackSlider.Value, myWin.whiteSlider.Value)
 		} else {
 			fmt.Printf("The image kind (%s) is unrecognized.\n", kind)
 		}
 	}
 	fitsImage := canvas.NewImageFromImage(fyneImage)
 	fitsImage.FillMode = canvas.ImageFillOriginal
+	//fitsImage.FillMode = canvas.ImageFillContain
 
 	//size := len(primaryHDU.(fitsio.Image).Raw())
 	//fmt.Printf("%d bytes in the image\n", size)
@@ -372,7 +386,6 @@ func getFitsImage() fyne.CanvasObject {
 	//fmt.Printf("HDU name: %s\n", primaryHDU.Name())
 	//fmt.Printf("shape: %d x %d\n", primaryHDU.Header().Axes()[0], primaryHDU.Header().Axes()[1])
 	//fmt.Println(primaryHDU.Header().Keys())
-	//
 
 	//fmt.Println(formatMetaData(primaryHDU))
 	formatMetaData(primaryHDU) // We do this for the side effect of setting the timestamp
