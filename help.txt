@@ -1,11 +1,14 @@
 
-
-
-
-
-
     The default image that is shown when the program starts will go away after
     a successful selection of a FITS folder containing FITS files.
 
-    You can close this window at any time.
+    The vertical sliders at the right control black and white image levels.
+
+    The left slider sets minimum black level. The right slider sets maximum white level.
+
+    If you set the min black above the max white, the image will be inverted - some
+    people may find this easier to look at.
+
+    NOTE: During playback, occasionally the image flashes white. I don't know what
+    causes this, but it is harmless, although upsetting. I will seek to find the cause.
 

@@ -16,26 +16,29 @@ import (
 	"math"
 	"os"
 	"reflect"
-	"runtime"
 	"runtime/debug"
 	"strings"
 	"time"
 )
 
 type Config struct {
-	parentWindow         fyne.Window
-	App                  fyne.App
-	whiteSlider          *widget.Slider
-	blackSlider          *widget.Slider
-	fileSlider           *widget.Slider
-	centerContent        *fyne.Container
-	fitsFilePaths        []string
-	fileLabel            *widget.Label
+	parentWindow   fyne.Window
+	App            fyne.App
+	whiteSlider    *widget.Slider
+	blackSlider    *widget.Slider
+	fileSlider     *widget.Slider
+	centerContent  *fyne.Container
+	fitsFilePaths  []string
+	fileLabel      *widget.Label
+	timestampLabel *widget.Label
+	//frameCountLabel      *widget.Label
 	fileIndex            int
 	autoPlayEnabled      bool
 	playBackMilliseconds int64
 	currentFilePath      string
 	playDelay            time.Duration
+	primaryHDU           fitsio.HDU
+	timestamp            string
 }
 
 //go:embed help.txt
@@ -85,9 +88,11 @@ func main() {
 	myWin.fileLabel.Alignment = fyne.TextAlignCenter
 	row1.Add(myWin.fileLabel)
 
-	row2 := container.NewGridWithRows(1)
-	row2.Add(widget.NewLabel("Other stuff goes here..."))
-	row2.Add(widget.NewLabel("... and here..."))
+	myWin.timestampLabel = widget.NewLabel("timestamp goes here")
+	//myWin.frameCountLabel = widget.NewLabel("Frame count goes here")
+	row2 := container.NewHBox(layout.NewSpacer(), myWin.timestampLabel, layout.NewSpacer())
+	//row2.Add(myWin.frameCountLabel)
+	//row2.Add(myWin.timestampLabel)
 
 	myWin.fileSlider = widget.NewSlider(0, 1000)
 	myWin.fileSlider.OnChanged = func(value float64) { processFileSliderMove(value) }
@@ -124,7 +129,10 @@ func pauseAutoPlay() {
 }
 
 func playForward() {
-	checkForFrameRateSelected()
+	if !checkForFrameRateSelected() {
+		return
+	}
+
 	if myWin.autoPlayEnabled {
 		return // autoPlay is already running
 	}
@@ -142,14 +150,16 @@ func playForward() {
 	}
 }
 
-func checkForFrameRateSelected() {
+func checkForFrameRateSelected() bool {
 	if myWin.playDelay == time.Duration(0) {
 		dialog.ShowInformation(
 			"Something to do ...",
 			"Select a playback frame rate.",
 			myWin.parentWindow,
 		)
+		return false
 	}
+	return true
 }
 
 func setPlayDelay(opt string) {
@@ -174,7 +184,9 @@ func setPlayDelay(opt string) {
 }
 
 func playBackward() {
-	checkForFrameRateSelected()
+	if !checkForFrameRateSelected() {
+		return
+	}
 
 	if myWin.autoPlayEnabled {
 		return // autoPlay is already running
@@ -262,6 +274,13 @@ func processFitsFolderSelection(path fyne.ListableURI, err error) {
 	if path != nil {
 		//fmt.Println(path.Path())
 		myWin.fitsFilePaths = getFitsFilenames(path.Path())
+		if len(myWin.fitsFilePaths) == 0 {
+			dialog.ShowInformation("Oops",
+				"No .fits files were found there!",
+				myWin.parentWindow,
+			)
+			return
+		}
 		myWin.fileIndex = 0
 		myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
 		fmt.Printf("%d fits files were found.\n", len(myWin.fitsFilePaths))
@@ -272,13 +291,27 @@ func processFitsFolderSelection(path fyne.ListableURI, err error) {
 }
 
 func showMetaData() {
-	fmt.Println("Time to show meta-data")
+	helpWin := myWin.App.NewWindow("FITS Meta-data")
+	helpWin.Resize(fyne.Size{Height: 600, Width: 700})
+	metaDataList := formatMetaData(myWin.primaryHDU)
+	metaData := ""
+	for _, line := range metaDataList {
+		metaData += line + "\n"
+	}
+	scrollableText := container.NewVScroll(widget.NewRichTextWithText(metaData))
+	helpWin.SetContent(scrollableText)
+	helpWin.Show()
+	helpWin.CenterOnScreen()
 }
 
 func getFitsImage() fyne.CanvasObject {
 	defaultImagePath := "enhanced-image-0.fit"
 	fitsFilePath := ""
-	runtime.GC()
+
+	// None of the following hacks reduced the 'flashing' during playback.
+	//runtime.GC()
+	//debug.SetGCPercent(-1)
+	//defer debug.SetGCPercent(10)
 
 	// If no fits folder has been selected yet, use the default image
 	if len(myWin.fitsFilePaths) == 0 {
@@ -316,6 +349,7 @@ func getFitsImage() fyne.CanvasObject {
 	}(f)
 
 	primaryHDU := f.HDU(0)
+	myWin.primaryHDU = primaryHDU
 
 	fyneImage := primaryHDU.(fitsio.Image).Image()
 	kind := reflect.TypeOf(fyneImage).Elem().Name()
@@ -338,15 +372,49 @@ func getFitsImage() fyne.CanvasObject {
 	//fmt.Printf("HDU name: %s\n", primaryHDU.Name())
 	//fmt.Printf("shape: %d x %d\n", primaryHDU.Header().Axes()[0], primaryHDU.Header().Axes()[1])
 	//fmt.Println(primaryHDU.Header().Keys())
+	//
+
+	//fmt.Println(formatMetaData(primaryHDU))
+	formatMetaData(primaryHDU) // We do this for the side effect of setting the timestamp
 
 	if myWin.centerContent != nil {
 		myWin.centerContent.Objects[0] = fitsImage
-		myWin.centerContent.Refresh()
-		//fitsNames := getFitsFilenames()
-		//fmt.Println(fitsNames)
+		//myWin.centerContent.Refresh()
 	}
 
 	return fitsImage
+}
+
+func formatMetaData(primaryHDU fitsio.HDU) []string {
+	var cards []fitsio.Card
+	var metaDataText []string
+	var line string
+	timestampFound := false
+
+	for i := 0; i < len(primaryHDU.Header().Keys()); i += 1 {
+		card := primaryHDU.(fitsio.Image).Header().Card(i)
+		cards = append(cards, *card)
+		if card.Comment == "" {
+			line = fmt.Sprintf("%8s: %8v\n", card.Name, card.Value)
+			metaDataText = append(metaDataText, line)
+		} else {
+			line = fmt.Sprintf("%8s: %8v (%s)\n", card.Name, card.Value, card.Comment)
+			metaDataText = append(metaDataText, line)
+		}
+		if card.Name == "DATE-OBS" {
+			timestampFound = true
+			myWin.timestamp = fmt.Sprintf("%v", card.Value)
+			myWin.timestamp = strings.Replace(myWin.timestamp, "T", " ", 1)
+			myWin.timestampLabel.SetText(myWin.timestamp)
+		}
+	}
+
+	if !timestampFound {
+		myWin.timestamp = "<no timestamp found>"
+		myWin.timestampLabel.SetText(myWin.timestamp)
+	}
+
+	return metaDataText
 }
 
 func getFitsFilenames(folder string) []string {
