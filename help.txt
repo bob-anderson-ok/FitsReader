@@ -9,6 +9,4 @@
     If you set the min black above the max white, the image will be inverted - some
     people may find this easier to look at.
 
-    NOTE: During playback, occasionally the image flashes white. I don't know what
-    causes this, but it is harmless, although upsetting. I will seek to find the cause.
 
