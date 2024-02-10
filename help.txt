@@ -2,11 +2,17 @@
     The default image that is shown when the program starts will go away after
     a successful selection of a FITS folder containing FITS files.
 
-    The vertical sliders at the right control black and white image levels.
+    The vertical sliders at the right control black and white image levels after
+    the default image is replaced.
 
     The left slider sets minimum black level. The right slider sets maximum white level.
 
     If you set the min black above the max white, the image will be inverted - some
     people may find this easier to look at.
 
+    The "dark" theme is used on start. Click one of the "theme" buttons to change the
+    theme in use.
 
+    Looping can be done backwards as well as (the usual) forwards.
+
+    Author: Bob Anderson  bob.anderson.ok@gmail.com (also PyMovie, PyOTE, R-ote, Occular)

@@ -9,16 +9,16 @@ import (
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/layout"
+	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/astrogo/fitsio"
 	"github.com/astrogo/fitsio/fltimg"
 	"image"
+	"image/color"
 	"math"
 	"os"
 	"reflect"
-	"runtime"
-	"runtime/debug"
 	"strings"
 	"time"
 )
@@ -31,12 +31,14 @@ type Config struct {
 	fileSlider           *widget.Slider
 	centerContent        *fyne.Container
 	zeroPix              []byte
-	zeroRepairNeeded     bool
 	fitsFilePaths        []string
+	numFiles             int
+	waitingForFileRead   bool
 	fitsImages           []*canvas.Image
 	imageKind            string
 	fileLabel            *widget.Label
 	timestampLabel       *widget.Label
+	busyLabel            *canvas.Text
 	fileIndex            int
 	autoPlayEnabled      bool
 	playBackMilliseconds int64
@@ -46,9 +48,13 @@ type Config struct {
 	timestamps           []string
 	metaData             [][]string
 	timestamp            string
+	loopStartIndex       int
+	loopEndIndex         int
 }
 
 const DefaultImageName = "FITS-player-default-image.fits"
+
+const version = " 1.0.3"
 
 //go:embed help.txt
 var helpText string
@@ -59,30 +65,27 @@ var defaultImageFile []byte
 var myWin Config
 
 func main() {
-	// Increasing the frequency of garbage collection reduces the 'flicker' that sometimes occurs
-	// as the contrast sliders are moved.
-	debug.SetGCPercent(5)
-	//runtime.LockOSThread()
-	//defer runtime.UnlockOSThread()
 
+	// Copy our embedded default image file to the current working directory
 	var permissions os.FileMode
 	permissions = 0666
 	err := os.WriteFile(DefaultImageName, defaultImageFile, permissions)
 	if err != nil {
 		panic(err)
 	}
-	myWin.zeroRepairNeeded = false
 
-	myApp := app.New()
+	// We supply an ID (hopefully unique) because we need to use the preferences API
+	myApp := app.NewWithID("com.gmail.ok.anderson.bob")
 	myWin.App = myApp
 
-	myApp.Settings().SetTheme(theme.DarkTheme())
-
-	//os.Setenv("FYNE_THEME", "light")
+	// We start app using the dark theme. There are buttons to allow theme change
+	myApp.Settings().SetTheme(&forcedVariant{Theme: theme.DefaultTheme(), variant: theme.VariantDark})
 
 	myWin.autoPlayEnabled = false
+	myWin.loopStartIndex = -1
+	myWin.loopEndIndex = -1
 
-	w := myApp.NewWindow("IOTA FITS video player")
+	w := myApp.NewWindow("IOTA FITS video player" + version)
 	w.Resize(fyne.Size{Height: 800, Width: 1200})
 
 	myWin.parentWindow = w
@@ -109,7 +112,22 @@ func main() {
 	selector.PlaceHolder = "Set play fps"
 	leftItem.Add(selector)
 
-	leftItem.Add(widget.NewCheck("Use light theme", func(checked bool) { changeTheme(checked) }))
+	leftItem.Add(widget.NewButton("Dark theme", func() {
+		myApp.Settings().SetTheme(&forcedVariant{Theme: theme.DefaultTheme(), variant: theme.VariantDark})
+	}))
+	leftItem.Add(widget.NewButton("Light theme", func() {
+		myApp.Settings().SetTheme(&forcedVariant{Theme: theme.DefaultTheme(), variant: theme.VariantLight})
+	}))
+
+	//busyText := canvas.NewText("READING FILES", color.NRGBA{R: 255, A: 255})
+	//myWin.busyLabel = busyText
+	//myWin.busyLabel.Hidden = true
+	//leftItem.Add(myWin.busyLabel)
+
+	leftItem.Add(layout.NewSpacer())
+	leftItem.Add(widget.NewButton("Set loop start", func() { setLoopStart() }))
+	leftItem.Add(widget.NewButton("Set loop end", func() { setLoopEnd() }))
+	leftItem.Add(widget.NewButton("Run loop", func() { go runLoop() }))
 
 	row1 := container.NewGridWithRows(1)
 	myWin.fileLabel = widget.NewLabel("File name goes here")
@@ -119,28 +137,29 @@ func main() {
 	myWin.timestampLabel = widget.NewLabel("timestamp goes here")
 	row2 := container.NewHBox(layout.NewSpacer(), myWin.timestampLabel, layout.NewSpacer())
 
-	myWin.fileSlider = widget.NewSlider(0, 1000)
+	myWin.fileSlider = widget.NewSlider(0, 0) // Default max - will be set by getFitsFileNames()
 	myWin.fileSlider.OnChanged = func(value float64) { processFileSliderMove(value) }
 
 	toolBar := container.NewHBox()
 	toolBar.Add(layout.NewSpacer())
 	toolBar.Add(widget.NewButton("-1", func() { processBackOneFrame() }))
-	toolBar.Add(widget.NewButton("<", func() { go playBackward() }))
+	toolBar.Add(widget.NewButton("<", func() { go playBackward(false) }))
 	toolBar.Add(widget.NewButton("||", func() { pauseAutoPlay() }))
-	toolBar.Add(widget.NewButton(">", func() { go playForward() }))
+	toolBar.Add(widget.NewButton(">", func() { go playForward(false) }))
 	toolBar.Add(widget.NewButton("+1", func() { processForwardOneFrame() }))
 	toolBar.Add(layout.NewSpacer())
 
 	bottomItem := container.NewVBox(myWin.fileSlider, toolBar, row1, row2)
 
-	fitsImage := getFitsImage() // Get the initial image
+	initialImage := getFitsImage() // Get the initial image
 
 	centerContent := container.NewBorder(
 		nil,
 		bottomItem,
 		leftItem,
 		rightItem,
-		fitsImage)
+		initialImage)
+
 	myWin.centerContent = centerContent
 	w.SetContent(myWin.centerContent)
 	w.CenterOnScreen()
@@ -149,37 +168,94 @@ func main() {
 	w.ShowAndRun()
 }
 
-func changeTheme(checked bool) {
-	if checked {
-		myWin.App.Settings().SetTheme(theme.LightTheme())
-	} else {
-		myWin.App.Settings().SetTheme(theme.DarkTheme())
+func runLoop() {
+	if myWin.loopStartIndex < 0 {
+		dialog.ShowInformation("Oops", "You need to Set loop start", myWin.parentWindow)
+		return
 	}
+
+	if myWin.loopEndIndex < 0 {
+		dialog.ShowInformation("Oops", "You need to Set loop end", myWin.parentWindow)
+		return
+	}
+
+	if myWin.loopStartIndex > myWin.loopEndIndex {
+		//fmt.Println("Loop will be run in reverse")
+		playBackward(true)
+	} else {
+		//fmt.Println("Loop will run forward")
+		playForward(true)
+	}
+}
+
+func setLoopStart() {
+	myWin.loopStartIndex = int(myWin.fileSlider.Value)
+	//fmt.Printf("Loop start index: %d\n", myWin.loopStartIndex)
+}
+
+func setLoopEnd() {
+	myWin.loopEndIndex = int(myWin.fileSlider.Value)
+	//fmt.Printf("Loop end index: %d\n", myWin.loopEndIndex)
+}
+
+type forcedVariant struct {
+	fyne.Theme
+
+	variant fyne.ThemeVariant
+}
+
+func (f *forcedVariant) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) color.Color {
+	return f.Theme.Color(name, f.variant)
 }
 
 func pauseAutoPlay() {
 	myWin.autoPlayEnabled = false
 }
 
-func playForward() {
+func playForward(loop bool) {
 	if !checkForFrameRateSelected() {
 		return
 	}
 
-	if myWin.autoPlayEnabled {
+	var endPoint int
+	if loop {
+		endPoint = myWin.loopEndIndex
+	} else {
+		endPoint = myWin.numFiles - 1
+	}
+
+	if myWin.autoPlayEnabled { // This deals with the user re-clicking the play > button
 		return // autoPlay is already running
 	}
-	myWin.autoPlayEnabled = true // This can be set to false by clicking the pause button
+
+	myWin.autoPlayEnabled = true // This can/will be set to false by clicking the pause button
+
 	for {
-		if !myWin.autoPlayEnabled {
+		if !myWin.autoPlayEnabled { // This is how we break out of the forever loop
 			return
 		}
-		if myWin.fileIndex == len(myWin.fitsFilePaths)-1 {
-			// End of file reached.
-			myWin.autoPlayEnabled = false
-			return
+		if myWin.fileIndex >= endPoint {
+			// End point reached.
+			if !loop {
+				myWin.autoPlayEnabled = false
+				return
+			} else {
+				// We go back to the loop start (the -1 is because processForwardOneFrame() increments myWin.fileIndex
+				// before it displays the file at myWin.fileIndex
+				myWin.fileIndex = myWin.loopStartIndex - 1
+			}
 		}
+		// This flag will become true after file has been read and displayed by getFitsImage()
+		myWin.waitingForFileRead = true
+		// This will increment myWin.fileIndex invoke getFItsImage() to display the image from that file
 		processForwardOneFrame()
+		for {
+			if myWin.waitingForFileRead {
+				time.Sleep(1 * time.Millisecond)
+			} else {
+				break
+			}
+		}
 		time.Sleep(myWin.playDelay)
 	}
 }
@@ -217,7 +293,7 @@ func setPlayDelay(opt string) {
 	}
 }
 
-func playBackward() {
+func playBackward(loop bool) {
 	if !checkForFrameRateSelected() {
 		return
 	}
@@ -225,69 +301,86 @@ func playBackward() {
 	if myWin.autoPlayEnabled {
 		return // autoPlay is already running
 	}
+
+	var endPoint int
+	if loop {
+		endPoint = myWin.loopEndIndex
+	} else {
+		endPoint = 0
+	}
+
 	myWin.autoPlayEnabled = true // This can be set to false by clicking the pause button
 	for {
 		if !myWin.autoPlayEnabled {
 			return
 		}
-		if myWin.fileIndex == 0 {
-			myWin.autoPlayEnabled = false
-			return
+		if myWin.fileIndex <= endPoint {
+			// End point reached.
+			if !loop {
+				myWin.autoPlayEnabled = false
+				return
+			} else {
+				// We go back to the loop start (the +1 is because processBackwardOneFrame() decrements myWin.fileIndex
+				// before it displays the file at myWin.fileIndex
+				myWin.fileIndex = myWin.loopStartIndex + 1
+			}
 		}
+		// This flag will become true after file has been read and displayed by getFitsImage()
+		myWin.waitingForFileRead = true
+		// This will decrement myWin.fileIndex and invoke getFItsImage() to display the image from that file
 		processBackOneFrame()
+		for {
+			if myWin.waitingForFileRead {
+				time.Sleep(1 * time.Millisecond)
+			} else {
+				break
+			}
+		}
 		time.Sleep(myWin.playDelay)
 	}
 }
 
 func processBackOneFrame() {
-	numFrames := len(myWin.fitsFilePaths)
+	numFrames := myWin.numFiles
 	if numFrames == 0 {
 		return
 	}
 	myWin.fileIndex -= 1
 	if myWin.fileIndex < 0 {
 		myWin.fileIndex += 1
-		return
+		myWin.fileSlider.SetValue(0)
 	} else {
 		myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
-		slideValue := float64(myWin.fileIndex) / float64(numFrames) * 1000.0
-		myWin.fileSlider.SetValue(slideValue)
-		getFitsImage()
+		//getFitsImage()
 	}
+	myWin.fileSlider.SetValue(float64(myWin.fileIndex)) // This causes a call to getFitsImage
+	myWin.fileSlider.Refresh()
+	return
 }
 
 func processForwardOneFrame() {
-	numFrames := len(myWin.fitsFilePaths)
+	numFrames := myWin.numFiles
 	if numFrames == 0 {
 		return
 	}
 	myWin.fileIndex += 1
 	if myWin.fileIndex >= numFrames {
 		myWin.fileIndex = numFrames - 1
-		return
 	} else {
 		myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
-		slideValue := float64(myWin.fileIndex) / float64(numFrames) * 1000.0
-		myWin.fileSlider.SetValue(slideValue)
-		getFitsImage()
+		//getFitsImage()
 	}
+	myWin.fileSlider.SetValue(float64(myWin.fileIndex)) // This causes a call to getFitsImage()
+	return
 }
 
 func processFileSliderMove(position float64) {
-	numPaths := len(myWin.fitsFilePaths)
-	if numPaths > 0 {
-		// Compute the entry number corresponding to the slider position
-		entryFloat := float64(numPaths) * position / 1000.0
-		entryInt := int(math.Round(entryFloat))
-		if entryInt >= numPaths {
-			entryInt = numPaths - 1
-		}
-		pathRequested := myWin.fitsFilePaths[entryInt]
-		myWin.currentFilePath = pathRequested
-		myWin.fileIndex = entryInt
-		getFitsImage()
-	}
+	myWin.fileIndex = int(position)
+	myWin.fileLabel.SetText(myWin.fitsFilePaths[myWin.fileIndex])
+	myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
+	getFitsImage()
 }
+
 func chooseFitsFolder() {
 	showFolder := dialog.NewFolderOpen(
 		func(path fyne.ListableURI, err error) { processFitsFolderSelection(path, err) },
@@ -297,6 +390,24 @@ func chooseFitsFolder() {
 		Width:  800,
 		Height: 600,
 	})
+	lastFitsFolderStr := myWin.App.Preferences().StringWithFallback("lastFitsFolder", "")
+
+	if lastFitsFolderStr != "" {
+		uriOfLastFitsFolder := storage.NewFileURI(lastFitsFolderStr)
+		fitsDir, err := storage.ListerForURI(uriOfLastFitsFolder)
+		if err != nil {
+			fmt.Println(fmt.Errorf("ListerForURI(%s) failed: %w", lastFitsFolderStr, err))
+			return
+		} else {
+			//fmt.Println("lastFitsFolder:", fitsDir.Path())
+		}
+		if fitsDir != nil {
+			//fmt.Printf("\npath: %s  name: %s  scheme: %s, authority: %s\n\n",
+			//	fitsDir.Path(), fitsDir.Name(), fitsDir.Scheme(), fitsDir.Authority())
+		}
+		showFolder.SetLocation(fitsDir)
+	}
+
 	showFolder.Show()
 }
 
@@ -306,7 +417,8 @@ func processFitsFolderSelection(path fyne.ListableURI, err error) {
 		return
 	}
 	if path != nil {
-		//fmt.Println(path.Path())
+		//fmt.Printf("folder selected: %s\n", path)
+		myWin.App.Preferences().SetString("lastFitsFolder", path.Path())
 		myWin.fitsFilePaths = getFitsFilenames(path.Path())
 		if len(myWin.fitsFilePaths) == 0 {
 			dialog.ShowInformation("Oops",
@@ -316,14 +428,14 @@ func processFitsFolderSelection(path fyne.ListableURI, err error) {
 			return
 		}
 		myWin.fileIndex = 0
-		myWin.zeroRepairNeeded = false
 		myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
 		//fmt.Printf("%d fits files were found.\n", len(myWin.fitsFilePaths))
 		myWin.fitsImages = []*canvas.Image{}
-		myWin.fileIndex = 0
 		myWin.timestamps = []string{}
 		myWin.metaData = [][]string{}
-		readAllImages()
+		myWin.fileIndex = 0
+		initializeImages()
+		myWin.fileSlider.SetValue(0)
 	}
 	if len(myWin.fitsFilePaths) > 0 {
 		getFitsImage()
@@ -333,8 +445,8 @@ func processFitsFolderSelection(path fyne.ListableURI, err error) {
 func showMetaData() {
 	helpWin := myWin.App.NewWindow("FITS Meta-data")
 	helpWin.Resize(fyne.Size{Height: 600, Width: 700})
-	//metaDataList, _ := formatMetaData(myWin.primaryHDU)
-	metaDataList := myWin.metaData[myWin.fileIndex]
+	_, metaDataList, _ := getFitsImageFromFilePath(myWin.fitsFilePaths[myWin.fileIndex])
+	//metaDataList := myWin.metaData[myWin.fileIndex]
 	metaData := ""
 	for _, line := range metaDataList {
 		metaData += line + "\n"
@@ -348,106 +460,55 @@ func showMetaData() {
 func getFitsImage() fyne.CanvasObject {
 	fitsFilePath := ""
 
-	// None of the following hacks reduced the 'flashing' during playback.
-	runtime.GC()
-	//debug.SetGCPercent(-1)
-	//defer debug.SetGCPercent(10)
-
 	// If no fits folder has been selected yet, use the default image
-	if len(myWin.fitsFilePaths) == 0 {
+	if myWin.numFiles == 0 {
+		myWin.numFiles = 1
 		fitsFilePath = DefaultImageName
 		myWin.fitsFilePaths = append(myWin.fitsFilePaths, fitsFilePath)
-		readAllImages()
+		initializeImages()
 		myWin.fileIndex = 0
+		myWin.fileSlider.SetValue(0)
 	} else {
 		fitsFilePath = myWin.currentFilePath
 	}
 
 	myWin.fileLabel.SetText(myWin.fitsFilePaths[myWin.fileIndex])
-	myWin.timestampLabel.SetText(myWin.timestamps[myWin.fileIndex])
 
-	//f := openFitsFile(fitsFilePath)
-	//myWin.primaryHDU = f.HDU(0)
-	//closeErr := f.Close()
-	//if closeErr != nil {
-	//	errMsg := fmt.Errorf("could not close %s: %w", fitsFilePath, closeErr)
-	//	fmt.Printf(errMsg.Error())
-	//}
-	//
-	//fyneImage := myWin.primaryHDU.(fitsio.Image).Image()
-	//kind := reflect.TypeOf(fyneImage).Elem().Name()
-	//if myWin.whiteSlider != nil {
-	//	if kind == "Gray32" {
-	//		fyneImage.(*fltimg.Gray32).Max = float32(myWin.whiteSlider.Value)
-	//		fyneImage.(*fltimg.Gray32).Min = float32(myWin.blackSlider.Value)
-	//	} else if kind == "Gray" {
-	//		stretch(fyneImage.(*image.Gray).Pix, myWin.blackSlider.Value, myWin.whiteSlider.Value)
-	//	} else if kind == "Gray16" {
-	//		stretch(fyneImage.(*image.Gray16).Pix, myWin.blackSlider.Value, myWin.whiteSlider.Value)
-	//	} else {
-	//		fmt.Printf("The image kind (%s) is unrecognized.\n", kind)
-	//	}
-	//}
+	imageToUse, _, timestamp := getFitsImageFromFilePath(myWin.fitsFilePaths[myWin.fileIndex])
+	myWin.timestampLabel.SetText(timestamp)
 
-	//fitsImage := canvas.NewImageFromImage(fyneImage)
-	//fitsImage.FillMode = canvas.ImageFillOriginal
-
-	//size := len(primaryHDU.(fitsio.Image).Raw())
-	//fmt.Printf("%d bytes in the image\n", size)
-	//fmt.Printf("%d\n", primaryHDU.(fitsio.Image).Raw()[0])
-	//fmt.Printf("HDU name: %s\n", primaryHDU.Name())
-	//fmt.Printf("shape: %d x %d\n", primaryHDU.Header().Axes()[0], primaryHDU.Header().Axes()[1])
-	//fmt.Println(primaryHDU.Header().Keys())
-
-	//fmt.Println(formatMetaData(primaryHDU))
-	//formatMetaData(myWin.primaryHDU) // We do this for the side effect of setting the timestamp
-
-	//imageToScale := append([]*canvas.Image{}, myWin.fitsImages[myWin.fileIndex])
-	imageToScale := myWin.fitsImages[myWin.fileIndex]
 	if myWin.whiteSlider != nil {
 		if myWin.imageKind == "Gray32" {
-			if myWin.fileIndex == 0 {
-				myWin.zeroPix = make([]byte, len(imageToScale.Image.(*fltimg.Gray32).Pix))
-				copy(myWin.zeroPix, imageToScale.Image.(*fltimg.Gray32).Pix)
-			}
-			imageToScale.Image.(*fltimg.Gray32).Max = float32(myWin.whiteSlider.Value)
-			imageToScale.Image.(*fltimg.Gray32).Min = float32(myWin.blackSlider.Value)
+			imageToUse.Image.(*fltimg.Gray32).Max = float32(myWin.whiteSlider.Value)
+			imageToUse.Image.(*fltimg.Gray32).Min = float32(myWin.blackSlider.Value)
 		} else if myWin.imageKind == "Gray" {
-			if myWin.fileIndex == 0 {
-				myWin.zeroPix = make([]byte, len(imageToScale.Image.(*image.Gray).Pix))
-				copy(myWin.zeroPix, imageToScale.Image.(*image.Gray).Pix)
+			if myWin.fileIndex == 0 { // Save the (currently unmodified) index 0 image pixels
+				stretch(myWin.zeroPix, myWin.fitsImages[0].Image.(*image.Gray).Pix)
+			} else {
+				stretch(imageToUse.Image.(*image.Gray).Pix, myWin.fitsImages[0].Image.(*image.Gray).Pix)
 			}
-			stretch(imageToScale.Image.(*image.Gray).Pix, myWin.fitsImages[0].Image.(*image.Gray).Pix)
 		} else if myWin.imageKind == "Gray16" {
-			if myWin.fileIndex == 0 {
-				myWin.zeroPix = make([]byte, len(imageToScale.Image.(*image.Gray16).Pix))
-				copy(myWin.zeroPix, imageToScale.Image.(*image.Gray16).Pix)
+			if myWin.fileIndex == 0 { // Use the saved image 0 pixels as source
+				stretch(myWin.zeroPix, myWin.fitsImages[0].Image.(*image.Gray16).Pix)
+			} else {
+				stretch(imageToUse.Image.(*image.Gray16).Pix, myWin.fitsImages[0].Image.(*image.Gray16).Pix)
 			}
-			stretch(imageToScale.Image.(*image.Gray16).Pix, myWin.fitsImages[0].Image.(*image.Gray16).Pix)
 		} else {
 			fmt.Printf("The image kind (%s) is unrecognized.\n", myWin.imageKind)
 		}
 	}
 
 	if myWin.centerContent != nil {
-		//runtime.LockOSThread()  // Does not solve flashing
-		if myWin.fileIndex == 0 {
+		if myWin.fileIndex == 0 { // Initialize the target where pixels will be displayed from.
 			myWin.centerContent.Objects[0] = myWin.fitsImages[0]
 		}
-		//runtime.UnlockOSThread()
 		myWin.centerContent.Refresh()
 	}
+	myWin.waitingForFileRead = false // Signal to anyone waiting for file read completion
+	//fmt.Println(myWin.currentFilePath)
 
-	//return fitsImage
-	//return myWin.fitsImages[myWin.fileIndex]
-	return imageToScale
+	return imageToUse
 }
-
-//func restoreOriginalPixels(old []byte, copy []byte) {
-//	for i := 0; i < len(old); i++ {
-//		old[i] = copy[i]
-//	}
-//}
 
 func openFitsFile(fitsFilePath string) *fitsio.File {
 	fileHandle, err1 := os.Open(fitsFilePath)
@@ -470,50 +531,55 @@ func openFitsFile(fitsFilePath string) *fitsio.File {
 		panic(err3)
 	}
 
-	//defer func(fitsHandle *fitsio.File) {
-	//	err4 := fitsHandle.Close()
-	//	if err4 != nil {
-	//		errMsg := fmt.Errorf("could not close %s: %w", fitsFilePath, err4)
-	//		fmt.Printf(errMsg.Error())
-	//	}
-	//}(fitsHandle)
 	return fitsHandle
 }
 
-func readAllImages() {
-	for _, imgPath := range myWin.fitsFilePaths {
-		f := openFitsFile(imgPath)
-		myWin.primaryHDU = f.HDU(0)
+func initializeImages() {
 
-		closeErr := f.Close()
-		if closeErr != nil {
-			errMsg := fmt.Errorf("could not close %s: %w", imgPath, closeErr)
-			fmt.Printf(errMsg.Error())
-		}
+	fitsImage, _, _ := getFitsImageFromFilePath(myWin.fitsFilePaths[0]) // side effect: myWin.primaryHDU is set
 
-		fyneImage := myWin.primaryHDU.(fitsio.Image).Image()
-		kind := reflect.TypeOf(fyneImage).Elem().Name()
-		myWin.imageKind = kind
-		// TODO Move this to getFitsImage
-		//if myWin.whiteSlider != nil {
-		//	if kind == "Gray32" {
-		//		fyneImage.(*fltimg.Gray32).Max = float32(myWin.whiteSlider.Value)
-		//		fyneImage.(*fltimg.Gray32).Min = float32(myWin.blackSlider.Value)
-		//	} else if kind == "Gray" {
-		//		stretch(fyneImage.(*image.Gray).Pix, myWin.blackSlider.Value, myWin.whiteSlider.Value)
-		//	} else if kind == "Gray16" {
-		//		stretch(fyneImage.(*image.Gray16).Pix, myWin.blackSlider.Value, myWin.whiteSlider.Value)
-		//	} else {
-		//		fmt.Printf("The image kind (%s) is unrecognized.\n", kind)
-		//	}
-		//}
-		fitsImage := canvas.NewImageFromImage(fyneImage)
-		fitsImage.FillMode = canvas.ImageFillOriginal
-		myWin.fitsImages = append(myWin.fitsImages, fitsImage)
-		metaData, timestamp := formatMetaData(myWin.primaryHDU)
-		myWin.metaData = append(myWin.metaData, metaData)
-		myWin.timestamps = append(myWin.timestamps, timestamp)
+	myWin.fitsImages = append(myWin.fitsImages, fitsImage)
+
+	getZeroPix(myWin.fitsFilePaths[0])
+
+	myWin.fileSlider.SetValue(0)
+
+}
+
+func getZeroPix(pathToFrameZero string) {
+	fitsImage, _, _ := getFitsImageFromFilePath(pathToFrameZero)
+	// Save the pixels from the first image because we modify in place those pixels during image display
+	if myWin.imageKind == "Gray16" {
+		myWin.zeroPix = make([]byte, len(fitsImage.Image.(*image.Gray16).Pix))
+		copy(myWin.zeroPix, fitsImage.Image.(*image.Gray16).Pix)
 	}
+
+	// Save the pixel from the first image because we modify in place those pixels during image display
+	if myWin.imageKind == "Gray" {
+		myWin.zeroPix = make([]byte, len(fitsImage.Image.(*image.Gray).Pix))
+		copy(myWin.zeroPix, fitsImage.Image.(*image.Gray).Pix)
+	}
+}
+
+func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string) {
+	f := openFitsFile(filePath)
+	myWin.primaryHDU = f.HDU(0)
+	metaData, timestamp := formatMetaData(myWin.primaryHDU)
+
+	closeErr := f.Close()
+	if closeErr != nil {
+		errMsg := fmt.Errorf("could not close %s: %w", filePath, closeErr)
+		fmt.Printf(errMsg.Error())
+	}
+
+	goImage := myWin.primaryHDU.(fitsio.Image).Image()
+	kind := reflect.TypeOf(goImage).Elem().Name()
+	myWin.imageKind = kind
+
+	fitsImage := canvas.NewImageFromImage(goImage) // This is a Fyne image
+	//fitsImage.FillMode = canvas.ImageFillOriginal
+	fitsImage.FillMode = canvas.ImageFillContain
+	return fitsImage, metaData, timestamp
 }
 
 func formatMetaData(primaryHDU fitsio.HDU) ([]string, string) {
@@ -562,6 +628,9 @@ func getFitsFilenames(folder string) []string {
 			}
 		}
 	}
+	myWin.numFiles = len(fitsPaths)
+	myWin.fileSlider.Max = float64(myWin.numFiles - 1)
+	myWin.fileSlider.Min = 0.0
 	return fitsPaths
 }
 
@@ -599,8 +668,8 @@ func stretch(source []byte, old []byte) {
 }
 
 func showSplash() {
-	time.Sleep(1 * time.Second)
-	helpWin := myWin.App.NewWindow("Hello user ...")
+	time.Sleep(500 * time.Millisecond)
+	helpWin := myWin.App.NewWindow("Hello")
 	helpWin.Resize(fyne.Size{Height: 400, Width: 700})
 	scrollableText := container.NewVScroll(widget.NewRichTextWithText(helpText))
 	helpWin.SetContent(scrollableText)
