@@ -41,6 +41,8 @@ fyne.io/fyne/v2 v2.4.3 h1:v2wncjEAcwXZ8UNmTCWTGL9+sGyPc5RuzBvM96GcC78=
 fyne.io/fyne/v2 v2.4.3/go.mod h1:1h3BKxmQYRJlr2g+RGVxedzr6vLVQ/AJmFWcF9CJnoQ=
 fyne.io/systray v1.10.1-0.20231115130155-104f5ef7839e h1:Hvs+kW2VwCzNToF3FmnIAzmivNgrclwPgoUdVSrjkP8=
 fyne.io/systray v1.10.1-0.20231115130155-104f5ef7839e/go.mod h1:oM2AQqGJ1AMo4nNqZFYU8xYygSBZkW2hmdJ7n4yjedE=
+fyne.io/x/fyne v0.0.0-20231231230942-0b5901d0781a h1:IJgutb7v9eQwvK4OFdTK8MUvIfKmFfE8bCcvcRU69JI=
+fyne.io/x/fyne v0.0.0-20231231230942-0b5901d0781a/go.mod h1:1pa3ZVIopRWNvfSG4ZrSkcZ3mJ8qoHPZv4PT8/zpn1o=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
 github.com/antihax/optional v1.0.0/go.mod h1:uupD/76wgC+ih3iEmQUL+0Ugr19nfwCT1kdvxnR2qWY=
@@ -224,6 +226,8 @@ github.com/mitchellh/mapstructure v1.4.1/go.mod h1:bFUtVrKA4DC2yAKiSyO/QUcy7e+RR
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/reflect2 v0.0.0-20180701023420-4b7aa43c6742/go.mod h1:bx2lNnkwVCuqBIxFjflWJWanXIb3RllmbCylyMrvgv0=
 github.com/modern-go/reflect2 v1.0.1/go.mod h1:bx2lNnkwVCuqBIxFjflWJWanXIb3RllmbCylyMrvgv0=
+github.com/montanaflynn/stats v0.7.1 h1:etflOAAHORrCC44V+aR6Ftzort912ZU+YLiSTuV8eaE=
+github.com/montanaflynn/stats v0.7.1/go.mod h1:etXPPgVO6n31NxCd9KQUMvCM+ve0ruNzt6R8Bnaayow=
 github.com/neelance/astrewrite v0.0.0-20160511093645-99348263ae86/go.mod h1:kHJEU3ofeGjhHklVoIGuVj85JJwZ6kWPaJwCIxgnFmo=
 github.com/neelance/sourcemap v0.0.0-20200213170602-2833bce08e4c/go.mod h1:Qr6/a/Q4r9LP1IltGz7tA7iOK1WonHEYhu1HRBA7ZiM=
 github.com/pascaldekloe/goe v0.0.0-20180627143212-57f6aae5913c/go.mod h1:lzWF7FIEvWOWxwDKqyGYQf6ZUaNfKdP144TG7ZOy1lc=
