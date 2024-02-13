@@ -45,6 +45,7 @@ type Config struct {
 	leftButton           *widget.Button
 	rightButton          *widget.Button
 	centerButton         *widget.Button
+	drawROIbutton        *widget.Button
 	roiCheckbox          *widget.Check
 	setRoiButton         *widget.Button
 	parentWindow         fyne.Window
@@ -82,7 +83,7 @@ type Config struct {
 
 const DefaultImageName = "FITS-player-default-image.fits"
 
-const version = " 1.1.1"
+const version = " 1.2.0"
 
 //go:embed help.txt
 var helpText string
@@ -116,10 +117,15 @@ func main() {
 	myWin.widthStr = binding.NewString()
 	myWin.heightStr = binding.NewString()
 	myWin.roiActive = false
-	_ = myWin.widthStr.Set("640")  // Ignore possibility of error
-	_ = myWin.heightStr.Set("480") // Ignore possibility of error
-	myWin.roiWidth = 640
-	myWin.roiHeight = 480
+
+	widthStr := myWin.App.Preferences().StringWithFallback("ROIwidth", "600")
+	heightStr := myWin.App.Preferences().StringWithFallback("ROIheight", "400")
+
+	_ = myWin.widthStr.Set(widthStr)             // Ignore possibility of error
+	_ = myWin.heightStr.Set(heightStr)           // Ignore possibility of error
+	myWin.roiWidth, _ = strconv.Atoi(widthStr)   // Ignore error
+	myWin.roiHeight, _ = strconv.Atoi(heightStr) // Ignore error
+
 	myWin.roiChanged = false
 	myWin.roiCenterXoffset = 0
 	myWin.roiCenterYoffset = 0
@@ -153,7 +159,7 @@ func main() {
 	myWin.playDelay = 97 * time.Millisecond // 100 - 3
 	leftItem.Add(selector)
 
-	// These are left in if somebody requests a white theme option
+	// These are left in if somebody requests a white theme option using buttons
 	//leftItem.Add(widget.NewButton("Dark theme", func() {
 	//	myApp.Settings().SetTheme(&forcedVariant{Theme: theme.DefaultTheme(), variant: theme.VariantDark})
 	//}))
@@ -191,7 +197,6 @@ func main() {
 
 	toolBar2 := container.NewGridWithColumns(3)
 	toolBar2.Add(left)
-	//toolBar2.Add(widget.NewToolbar(widget.ToolbarItem(widget.NewToolbarSpacer())))
 	toolBar2.Add(center)
 	toolBar2.Add(right)
 
@@ -204,7 +209,8 @@ func main() {
 	leftItem.Add(toolBar2)
 	leftItem.Add(toolBar3)
 
-	//leftItem.Add(widget.NewButton("Draw ROI", func() { drawROI() }))
+	myWin.drawROIbutton = widget.NewButton("Draw ROI", func() { drawROI() })
+	leftItem.Add(myWin.drawROIbutton)
 
 	disableRoiControls()
 
@@ -254,9 +260,39 @@ func main() {
 	w.ShowAndRun()
 }
 
-//func drawROI() {
-//	dialog.ShowInformation("TBD", "TBD", myWin.parentWindow)
-//}
+func drawROI() {
+	if myWin.fileIndex != 0 {
+		//myWin.drawROIbutton.Disable()
+		dialog.ShowInformation("Sorry", "ROI outline can only be drawn on the first image.",
+			myWin.parentWindow)
+		return
+	}
+
+	if myWin.roiActive {
+		myWin.roiCheckbox.SetChecked(false)
+	}
+
+	x0 := myWin.roiCenterXoffset + myWin.imageWidth/2 - myWin.roiWidth/2
+	y0 := myWin.roiCenterYoffset + myWin.imageHeight/2 - myWin.roiHeight/2
+	x1 := x0 + myWin.roiWidth
+	y1 := y0 + myWin.roiHeight
+
+	//fmt.Printf("x0: %d  y0: %d   x1: %d  y1: %d\n", x0, y0, x1, y1)
+
+	for i := x0; i < x1; i++ {
+		myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray16).Set(i, y0, color.White)
+	}
+	for i := x0; i < x1; i++ {
+		myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray16).Set(i, y1, color.White)
+	}
+	for i := y0; i < y1; i++ {
+		myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray16).Set(x0, i, color.White)
+	}
+	for i := y0; i < y1; i++ {
+		myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray16).Set(x1, i, color.White)
+	}
+	myWin.centerContent.Refresh()
+}
 
 func tellMeWhatHappened(ev *fyne.PointEvent) {
 	fmt.Printf("Got a click @ x=%0.2f  y=%0.2f\n", ev.Position.X, ev.Position.Y)
@@ -323,31 +359,56 @@ func moveRoiCenter() {
 	myWin.roiCenterXoffset = 0
 	myWin.roiCenterYoffset = 0
 	myWin.roiChanged = true
-	displayFitsImage()
+	if myWin.fileIndex == 0 {
+		displayFitsImage()
+		drawROI()
+	} else {
+		displayFitsImage()
+	}
 }
 
 func moveRoiUp() {
 	myWin.roiCenterYoffset -= 20 // Move the image selection region down
 	myWin.roiChanged = true
-	displayFitsImage()
+	if myWin.fileIndex == 0 {
+		displayFitsImage()
+		drawROI()
+	} else {
+		displayFitsImage()
+	}
 }
 
 func moveRoiDown() {
 	myWin.roiCenterYoffset += 20 // Move the image selection region up
 	myWin.roiChanged = true
-	displayFitsImage()
+	if myWin.fileIndex == 0 {
+		displayFitsImage()
+		drawROI()
+	} else {
+		displayFitsImage()
+	}
 }
 
 func moveRoiLeft() {
 	myWin.roiCenterXoffset -= 20
 	myWin.roiChanged = true
-	displayFitsImage()
+	if myWin.fileIndex == 0 {
+		displayFitsImage()
+		drawROI()
+	} else {
+		displayFitsImage()
+	}
 }
 
 func moveRoiRight() {
 	myWin.roiCenterXoffset += 20
 	myWin.roiChanged = true
-	displayFitsImage()
+	if myWin.fileIndex == 0 {
+		displayFitsImage()
+		drawROI()
+	} else {
+		displayFitsImage()
+	}
 }
 
 func applyRoi(checked bool) {
@@ -384,6 +445,7 @@ func enableRoiControls() {
 	myWin.leftButton.Enable()
 	myWin.rightButton.Enable()
 	myWin.centerButton.Enable()
+	myWin.drawROIbutton.Enable()
 }
 
 func disableRoiControls() {
@@ -394,6 +456,7 @@ func disableRoiControls() {
 	myWin.leftButton.Disable()
 	myWin.rightButton.Disable()
 	myWin.centerButton.Disable()
+	myWin.drawROIbutton.Disable()
 }
 
 func roiEntry() {
@@ -444,6 +507,9 @@ func processRoiEntryInfo(ok bool) {
 			_ = myWin.heightStr.Set(fmt.Sprintf("%d", myWin.roiHeight))
 			return
 		}
+
+		myWin.App.Preferences().SetString("ROIwidth", widthStr)
+		myWin.App.Preferences().SetString("ROIheight", heightStr)
 
 		myWin.roiHeight = proposedRoiHeight
 		myWin.roiWidth = proposedRoiWidth
@@ -1075,7 +1141,7 @@ func stretch(source []byte, old []byte, kind string) {
 func showSplash() {
 	time.Sleep(500 * time.Millisecond)
 	helpWin := myWin.App.NewWindow("Hello")
-	helpWin.Resize(fyne.Size{Height: 400, Width: 700})
+	helpWin.Resize(fyne.Size{Height: 450, Width: 700})
 	scrollableText := container.NewVScroll(widget.NewRichTextWithText(helpText))
 	helpWin.SetContent(scrollableText)
 	helpWin.Show()
