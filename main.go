@@ -1,3 +1,5 @@
+// //go:build darwin
+
 package main
 
 import (
@@ -16,6 +18,8 @@ import (
 	"github.com/astrogo/fitsio"
 	"github.com/astrogo/fitsio/fltimg"
 	"github.com/montanaflynn/stats"
+	"github.com/qdm12/reprint"
+	_ "github.com/qdm12/reprint"
 	"image"
 	"image/color"
 	"math"
@@ -44,6 +48,8 @@ type Config struct {
 	roiCheckbox          *widget.Check
 	setRoiButton         *widget.Button
 	parentWindow         fyne.Window
+	imageWidth           int
+	imageHeight          int
 	App                  fyne.App
 	whiteSlider          *widget.Slider
 	blackSlider          *widget.Slider
@@ -56,6 +62,7 @@ type Config struct {
 	waitingForFileRead   bool
 	fitsImages           []*canvas.Image
 	originalImage        *canvas.Image
+	centerUnderlay       *canvas.Image
 	imageKind            string
 	fileLabel            *widget.Label
 	timestampLabel       *canvas.Text
@@ -75,7 +82,7 @@ type Config struct {
 
 const DefaultImageName = "FITS-player-default-image.fits"
 
-const version = " 1.1.0"
+const version = " 1.1.1"
 
 //go:embed help.txt
 var helpText string
@@ -109,10 +116,10 @@ func main() {
 	myWin.widthStr = binding.NewString()
 	myWin.heightStr = binding.NewString()
 	myWin.roiActive = false
-	_ = myWin.widthStr.Set("320")  // Ignore possibility of error
-	_ = myWin.heightStr.Set("240") // Ignore possibility of error
-	myWin.roiWidth = 320
-	myWin.roiHeight = 240
+	_ = myWin.widthStr.Set("640")  // Ignore possibility of error
+	_ = myWin.heightStr.Set("480") // Ignore possibility of error
+	myWin.roiWidth = 640
+	myWin.roiHeight = 480
 	myWin.roiChanged = false
 	myWin.roiCenterXoffset = 0
 	myWin.roiCenterYoffset = 0
@@ -197,6 +204,8 @@ func main() {
 	leftItem.Add(toolBar2)
 	leftItem.Add(toolBar3)
 
+	//leftItem.Add(widget.NewButton("Draw ROI", func() { drawROI() }))
+
 	disableRoiControls()
 
 	leftItem.Add(layout.NewSpacer())
@@ -245,9 +254,70 @@ func main() {
 	w.ShowAndRun()
 }
 
-//func tellMeWhatHappened(ev *fyne.PointEvent) {
-//	fmt.Println("Got a click", ev)
+//func drawROI() {
+//	dialog.ShowInformation("TBD", "TBD", myWin.parentWindow)
 //}
+
+func tellMeWhatHappened(ev *fyne.PointEvent) {
+	fmt.Printf("Got a click @ x=%0.2f  y=%0.2f\n", ev.Position.X, ev.Position.Y)
+	if myWin.centerUnderlay != nil {
+		canvasWidth := myWin.centerUnderlay.Size().Width
+		canvasHeight := myWin.centerUnderlay.Size().Height
+		canvasAspect := canvasWidth / canvasHeight
+		fmt.Printf("canvasWidth (fyne units): %0.2f  canvasHeight (fyne units): %0.2f  canvasAspect: %0.2f\n",
+			canvasWidth, canvasHeight, canvasAspect)
+		imageAspect := float32(myWin.imageWidth) / float32(myWin.imageHeight)
+		fmt.Printf("imageWidth (pixels): %d  heightHeight (pixels): %d  imageAspect: %0.2f\n",
+			myWin.imageWidth, myWin.imageHeight, imageAspect)
+		psVertical := canvasHeight / float32(myWin.imageHeight)
+		psHorizontal := canvasWidth / float32(myWin.imageWidth)
+		fmt.Printf("psV: %0.3f  pdH: %0.3f\n", psVertical, psHorizontal)
+
+		var fyneUnitToPixel float32
+		var topSpace float32
+		var sideSpace float32
+
+		if canvasAspect >= imageAspect {
+			fyneUnitToPixel = psVertical
+			topSpace = 0.0
+			sideSpace = canvasWidth - fyneUnitToPixel*float32(myWin.imageWidth)
+		} else {
+			fyneUnitToPixel = psHorizontal
+			sideSpace = 0.0
+			topSpace = canvasHeight - fyneUnitToPixel*float32(myWin.imageHeight)
+		}
+
+		xPosPixels := int(math.Round(float64((ev.Position.X - sideSpace/2) / fyneUnitToPixel)))
+		yPosPixels := int(math.Round(float64((ev.Position.Y - topSpace/2) / fyneUnitToPixel)))
+		fmt.Printf("topSpace: %0.3f  sideSpace: %0.3f\n", topSpace, sideSpace)
+		fmt.Printf("xPosPixels: %d  yPosPixels: %d\n", xPosPixels, yPosPixels)
+		myWin.roiCenterXoffset = xPosPixels - myWin.imageWidth/2
+		myWin.roiCenterYoffset = yPosPixels - myWin.imageHeight/2
+		if myWin.roiCenterXoffset < -myWin.imageWidth/2 {
+			myWin.roiCenterXoffset = -myWin.imageWidth / 2
+		}
+		if myWin.roiCenterXoffset > myWin.imageWidth/2 {
+			myWin.roiCenterXoffset = myWin.imageWidth / 2
+		}
+		if myWin.roiCenterYoffset < -myWin.imageHeight/2 {
+			myWin.roiCenterYoffset = -myWin.imageHeight / 2
+		}
+		if myWin.roiCenterYoffset > myWin.imageHeight/2 {
+			myWin.roiCenterYoffset = myWin.imageHeight / 2
+		}
+		fmt.Printf("centerXoffset: %d  centerYoffset: %d\n", myWin.roiCenterXoffset, myWin.roiCenterYoffset)
+		if myWin.roiActive {
+			myWin.roiCheckbox.SetChecked(false)
+			//myWin.roiActive = false
+			//applyRoi(false)
+		} else {
+			myWin.roiCheckbox.SetChecked(true)
+
+			//myWin.roiActive = true
+			//applyRoi(true)
+		}
+	}
+}
 
 func moveRoiCenter() {
 	myWin.roiCenterXoffset = 0
@@ -287,11 +357,21 @@ func applyRoi(checked bool) {
 	myWin.roiActive = checked
 	if checked {
 		myWin.roiChanged = true
-		myWin.originalImage = myWin.fitsImages[0]
+		//myWin.originalImage = myWin.fitsImages[0]
+		err := reprint.FromTo(&myWin.fitsImages[0], &myWin.originalImage)
+		if err != nil {
+			fmt.Println(fmt.Errorf("reprint: %w", err))
+		}
 		displayFitsImage()
 	} else {
-		myWin.fitsImages[0] = myWin.originalImage
+		//myWin.fitsImages[0] = myWin.originalImage
+		err := reprint.FromTo(&myWin.originalImage, &myWin.fitsImages[0])
+		if err != nil {
+			fmt.Println(fmt.Errorf("reprint: %w", err))
+		}
 		myWin.centerContent.Objects[0] = myWin.originalImage
+		myWin.centerContent.Objects[0] = myWin.fitsImages[0]
+		getZeroPix(myWin.fitsFilePaths[0])
 		displayFitsImage()
 	}
 }
@@ -368,9 +448,9 @@ func processRoiEntryInfo(ok bool) {
 		myWin.roiHeight = proposedRoiHeight
 		myWin.roiWidth = proposedRoiWidth
 
-		//myWin.roiChanged = true
-		//fmt.Printf("%d x %d\n", myWin.roiWidth, myWin.roiHeight)
-		displayFitsImage() // This causes the ROI change to be applied to the current image
+		// This causes the ROI change to be applied to the current image
+		myWin.roiChanged = true
+		displayFitsImage()
 	} else {
 		// User cancelled - restore old values
 		_ = myWin.widthStr.Set(fmt.Sprintf("%d", myWin.roiWidth))
@@ -690,7 +770,7 @@ func displayFitsImage() fyne.CanvasObject {
 	imageToUse, _, timestamp := getFitsImageFromFilePath(myWin.fitsFilePaths[myWin.fileIndex])
 	myWin.timestampLabel.Text = timestamp
 
-	imageToUse.ScaleMode = 0
+	//imageToUse.ScaleMode = 0
 
 	if myWin.whiteSlider != nil {
 		if myWin.imageKind == "Gray32" {
@@ -716,6 +796,12 @@ func displayFitsImage() fyne.CanvasObject {
 	if myWin.centerContent != nil {
 		if myWin.fileIndex == 0 { // Initialize the target where pixels will be displayed from.
 			myWin.centerContent.Objects[0] = myWin.fitsImages[0]
+			//imgWidth := myWin.centerContent.Objects[0].(*canvas.Image).Size().Width
+			//imgHeight := myWin.centerContent.Objects[0].(*canvas.Image).Size().Height
+			//fmt.Printf("width: %0.2f  height: %0.2f\n", imgWidth, imgHeight)
+
+			//myWin.centerUnderlay = myWin.centerContent.Objects[0].(*canvas.Image)
+			//myWin.centerContent.Objects[0] = wrapper.MakeTappable(myWin.centerContent.Objects[0], func(ev *fyne.PointEvent) { tellMeWhatHappened(ev) })
 		}
 		myWin.centerContent.Refresh()
 	}
@@ -753,6 +839,9 @@ func initializeImages() {
 
 	fitsImage, _, _ := getFitsImageFromFilePath(myWin.fitsFilePaths[0]) // side effect: myWin.primaryHDU is set
 
+	myWin.imageWidth = fitsImage.Image.Bounds().Max.X
+	myWin.imageHeight = fitsImage.Image.Bounds().Max.Y
+
 	myWin.fitsImages = append(myWin.fitsImages, fitsImage)
 
 	getZeroPix(myWin.fitsFilePaths[0])
@@ -769,7 +858,7 @@ func getZeroPix(pathToFrameZero string) {
 		copy(myWin.zeroPix, fitsImage.Image.(*image.Gray16).Pix)
 	}
 
-	// Save the pixel from the first image because we modify in place those pixels during image display
+	// Save the pixels from the first image because we modify in place those pixels during image display
 	if myWin.imageKind == "Gray" {
 		myWin.zeroPix = make([]byte, len(fitsImage.Image.(*image.Gray).Pix))
 		copy(myWin.zeroPix, fitsImage.Image.(*image.Gray).Pix)
@@ -915,7 +1004,12 @@ func stretch(source []byte, old []byte, kind string) {
 	var scale float64
 
 	// TODO Remove this debug print
+	if len(source) != len(old) {
+		fmt.Printf("source: %d bytes  old: %d bytes\n", len(source), len(old))
+		return
+	}
 	//fmt.Printf("source: %d bytes  old: %d bytes\n", len(source), len(old))
+
 	bot := myWin.blackSlider.Value
 	top := myWin.whiteSlider.Value
 
