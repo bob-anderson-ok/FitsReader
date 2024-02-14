@@ -83,7 +83,7 @@ type Config struct {
 
 const DefaultImageName = "FITS-player-default-image.fits"
 
-const version = " 1.2.0"
+const version = " 1.2.2"
 
 //go:embed help.txt
 var helpText string
@@ -209,7 +209,7 @@ func main() {
 	leftItem.Add(toolBar2)
 	leftItem.Add(toolBar3)
 
-	myWin.drawROIbutton = widget.NewButton("Draw ROI", func() { drawROI() })
+	myWin.drawROIbutton = widget.NewButton("Show ROI", func() { drawROI() })
 	leftItem.Add(myWin.drawROIbutton)
 
 	disableRoiControls()
@@ -279,81 +279,98 @@ func drawROI() {
 
 	//fmt.Printf("x0: %d  y0: %d   x1: %d  y1: %d\n", x0, y0, x1, y1)
 
-	for i := x0; i < x1; i++ {
-		myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray16).Set(i, y0, color.White)
+	if myWin.imageKind == "Gray16" {
+		for i := x0; i < x1; i++ {
+			myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray16).Set(i, y0, color.White)
+		}
+		for i := x0; i < x1+1; i++ {
+			myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray16).Set(i, y1, color.White)
+		}
+		for i := y0; i < y1; i++ {
+			myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray16).Set(x0, i, color.White)
+		}
+		for i := y0; i < y1; i++ {
+			myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray16).Set(x1, i, color.White)
+		}
 	}
-	for i := x0; i < x1; i++ {
-		myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray16).Set(i, y1, color.White)
-	}
-	for i := y0; i < y1; i++ {
-		myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray16).Set(x0, i, color.White)
-	}
-	for i := y0; i < y1; i++ {
-		myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray16).Set(x1, i, color.White)
+
+	if myWin.imageKind == "Gray" {
+		for i := x0; i < x1; i++ {
+			myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray).Set(i, y0, color.White)
+		}
+		for i := x0; i < x1+1; i++ {
+			myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray).Set(i, y1, color.White)
+		}
+		for i := y0; i < y1; i++ {
+			myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray).Set(x0, i, color.White)
+		}
+		for i := y0; i < y1; i++ {
+			myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray).Set(x1, i, color.White)
+		}
 	}
 	myWin.centerContent.Refresh()
 }
 
-func tellMeWhatHappened(ev *fyne.PointEvent) {
-	fmt.Printf("Got a click @ x=%0.2f  y=%0.2f\n", ev.Position.X, ev.Position.Y)
-	if myWin.centerUnderlay != nil {
-		canvasWidth := myWin.centerUnderlay.Size().Width
-		canvasHeight := myWin.centerUnderlay.Size().Height
-		canvasAspect := canvasWidth / canvasHeight
-		fmt.Printf("canvasWidth (fyne units): %0.2f  canvasHeight (fyne units): %0.2f  canvasAspect: %0.2f\n",
-			canvasWidth, canvasHeight, canvasAspect)
-		imageAspect := float32(myWin.imageWidth) / float32(myWin.imageHeight)
-		fmt.Printf("imageWidth (pixels): %d  heightHeight (pixels): %d  imageAspect: %0.2f\n",
-			myWin.imageWidth, myWin.imageHeight, imageAspect)
-		psVertical := canvasHeight / float32(myWin.imageHeight)
-		psHorizontal := canvasWidth / float32(myWin.imageWidth)
-		fmt.Printf("psV: %0.3f  pdH: %0.3f\n", psVertical, psHorizontal)
-
-		var fyneUnitToPixel float32
-		var topSpace float32
-		var sideSpace float32
-
-		if canvasAspect >= imageAspect {
-			fyneUnitToPixel = psVertical
-			topSpace = 0.0
-			sideSpace = canvasWidth - fyneUnitToPixel*float32(myWin.imageWidth)
-		} else {
-			fyneUnitToPixel = psHorizontal
-			sideSpace = 0.0
-			topSpace = canvasHeight - fyneUnitToPixel*float32(myWin.imageHeight)
-		}
-
-		xPosPixels := int(math.Round(float64((ev.Position.X - sideSpace/2) / fyneUnitToPixel)))
-		yPosPixels := int(math.Round(float64((ev.Position.Y - topSpace/2) / fyneUnitToPixel)))
-		fmt.Printf("topSpace: %0.3f  sideSpace: %0.3f\n", topSpace, sideSpace)
-		fmt.Printf("xPosPixels: %d  yPosPixels: %d\n", xPosPixels, yPosPixels)
-		myWin.roiCenterXoffset = xPosPixels - myWin.imageWidth/2
-		myWin.roiCenterYoffset = yPosPixels - myWin.imageHeight/2
-		if myWin.roiCenterXoffset < -myWin.imageWidth/2 {
-			myWin.roiCenterXoffset = -myWin.imageWidth / 2
-		}
-		if myWin.roiCenterXoffset > myWin.imageWidth/2 {
-			myWin.roiCenterXoffset = myWin.imageWidth / 2
-		}
-		if myWin.roiCenterYoffset < -myWin.imageHeight/2 {
-			myWin.roiCenterYoffset = -myWin.imageHeight / 2
-		}
-		if myWin.roiCenterYoffset > myWin.imageHeight/2 {
-			myWin.roiCenterYoffset = myWin.imageHeight / 2
-		}
-		fmt.Printf("centerXoffset: %d  centerYoffset: %d\n", myWin.roiCenterXoffset, myWin.roiCenterYoffset)
-		if myWin.roiActive {
-			myWin.roiCheckbox.SetChecked(false)
-			//myWin.roiActive = false
-			//applyRoi(false)
-		} else {
-			myWin.roiCheckbox.SetChecked(true)
-
-			//myWin.roiActive = true
-			//applyRoi(true)
-		}
-	}
-}
+//func tellMeWhatHappened(ev *fyne.PointEvent) {
+//	fmt.Printf("Got a click @ x=%0.2f  y=%0.2f\n", ev.Position.X, ev.Position.Y)
+//	if myWin.centerUnderlay != nil {
+//		canvasWidth := myWin.centerUnderlay.Size().Width
+//		canvasHeight := myWin.centerUnderlay.Size().Height
+//		canvasAspect := canvasWidth / canvasHeight
+//		fmt.Printf("canvasWidth (fyne units): %0.2f  canvasHeight (fyne units): %0.2f  canvasAspect: %0.2f\n",
+//			canvasWidth, canvasHeight, canvasAspect)
+//		imageAspect := float32(myWin.imageWidth) / float32(myWin.imageHeight)
+//		fmt.Printf("imageWidth (pixels): %d  heightHeight (pixels): %d  imageAspect: %0.2f\n",
+//			myWin.imageWidth, myWin.imageHeight, imageAspect)
+//		psVertical := canvasHeight / float32(myWin.imageHeight)
+//		psHorizontal := canvasWidth / float32(myWin.imageWidth)
+//		fmt.Printf("psV: %0.3f  pdH: %0.3f\n", psVertical, psHorizontal)
+//
+//		var fyneUnitToPixel float32
+//		var topSpace float32
+//		var sideSpace float32
+//
+//		if canvasAspect >= imageAspect {
+//			fyneUnitToPixel = psVertical
+//			topSpace = 0.0
+//			sideSpace = canvasWidth - fyneUnitToPixel*float32(myWin.imageWidth)
+//		} else {
+//			fyneUnitToPixel = psHorizontal
+//			sideSpace = 0.0
+//			topSpace = canvasHeight - fyneUnitToPixel*float32(myWin.imageHeight)
+//		}
+//
+//		xPosPixels := int(math.Round(float64((ev.Position.X - sideSpace/2) / fyneUnitToPixel)))
+//		yPosPixels := int(math.Round(float64((ev.Position.Y - topSpace/2) / fyneUnitToPixel)))
+//		fmt.Printf("topSpace: %0.3f  sideSpace: %0.3f\n", topSpace, sideSpace)
+//		fmt.Printf("xPosPixels: %d  yPosPixels: %d\n", xPosPixels, yPosPixels)
+//		myWin.roiCenterXoffset = xPosPixels - myWin.imageWidth/2
+//		myWin.roiCenterYoffset = yPosPixels - myWin.imageHeight/2
+//		if myWin.roiCenterXoffset < -myWin.imageWidth/2 {
+//			myWin.roiCenterXoffset = -myWin.imageWidth / 2
+//		}
+//		if myWin.roiCenterXoffset > myWin.imageWidth/2 {
+//			myWin.roiCenterXoffset = myWin.imageWidth / 2
+//		}
+//		if myWin.roiCenterYoffset < -myWin.imageHeight/2 {
+//			myWin.roiCenterYoffset = -myWin.imageHeight / 2
+//		}
+//		if myWin.roiCenterYoffset > myWin.imageHeight/2 {
+//			myWin.roiCenterYoffset = myWin.imageHeight / 2
+//		}
+//		fmt.Printf("centerXoffset: %d  centerYoffset: %d\n", myWin.roiCenterXoffset, myWin.roiCenterYoffset)
+//		if myWin.roiActive {
+//			myWin.roiCheckbox.SetChecked(false)
+//			//myWin.roiActive = false
+//			//applyRoi(false)
+//		} else {
+//			myWin.roiCheckbox.SetChecked(true)
+//
+//			//myWin.roiActive = true
+//			//applyRoi(true)
+//		}
+//	}
+//}
 
 func moveRoiCenter() {
 	myWin.roiCenterXoffset = 0
@@ -753,8 +770,10 @@ func chooseFitsFolder() {
 		uriOfLastFitsFolder := storage.NewFileURI(lastFitsFolderStr)
 		fitsDir, err := storage.ListerForURI(uriOfLastFitsFolder)
 		if err != nil {
-			fmt.Println(fmt.Errorf("ListerForURI(%s) failed: %w", lastFitsFolderStr, err))
-			return
+			myWin.App.Preferences().SetString("lastFitsFolder", "")
+			lastFitsFolderStr = ""
+			//fmt.Println(fmt.Errorf("ListerForURI(%s) failed: %w", lastFitsFolderStr, err))
+			//return
 		} else {
 			//fmt.Println("lastFitsFolder:", fitsDir.Path())
 		}
