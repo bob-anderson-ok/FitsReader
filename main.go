@@ -122,15 +122,18 @@ func main() {
 
 	widthStr := myWin.App.Preferences().StringWithFallback("ROIwidth", "600")
 	heightStr := myWin.App.Preferences().StringWithFallback("ROIheight", "400")
+	roiCenterXstr := myWin.App.Preferences().StringWithFallback("ROIcenterX", "0")
+	roiCenterYstr := myWin.App.Preferences().StringWithFallback("ROIcenterY", "0")
 
-	_ = myWin.widthStr.Set(widthStr)             // Ignore possibility of error
-	_ = myWin.heightStr.Set(heightStr)           // Ignore possibility of error
-	myWin.roiWidth, _ = strconv.Atoi(widthStr)   // Ignore error
-	myWin.roiHeight, _ = strconv.Atoi(heightStr) // Ignore error
+	_ = myWin.widthStr.Set(widthStr)   // Ignore possibility of error
+	_ = myWin.heightStr.Set(heightStr) // Ignore possibility of error
+
+	myWin.roiWidth, _ = strconv.Atoi(widthStr)              // Ignore error
+	myWin.roiHeight, _ = strconv.Atoi(heightStr)            // Ignore error
+	myWin.roiCenterXoffset, _ = strconv.Atoi(roiCenterXstr) // Ignore error
+	myWin.roiCenterYoffset, _ = strconv.Atoi(roiCenterYstr) // Ignore error
 
 	myWin.roiChanged = false
-	myWin.roiCenterXoffset = 0
-	myWin.roiCenterYoffset = 0
 
 	w := myApp.NewWindow("IOTA FITS video player" + version)
 	w.Resize(fyne.Size{Height: 800, Width: 1200})
@@ -378,6 +381,13 @@ func moveRoiCenter() {
 	myWin.roiCenterXoffset = 0
 	myWin.roiCenterYoffset = 0
 	myWin.roiChanged = true
+
+	//_ = myWin.roiCenterXstr.Set(fmt.Sprintf("%d", myWin.roiCenterXoffset))
+	//_ = myWin.roiCenterYstr.Set(fmt.Sprintf("%d", myWin.roiCenterYoffset))
+
+	myWin.App.Preferences().SetString("ROIcenterX", fmt.Sprintf("%d", myWin.roiCenterXoffset))
+	myWin.App.Preferences().SetString("ROIcenterY", fmt.Sprintf("%d", myWin.roiCenterYoffset))
+
 	if myWin.fileIndex == 0 {
 		displayFitsImage()
 		drawROI()
@@ -388,6 +398,8 @@ func moveRoiCenter() {
 
 func moveRoiUp() {
 	myWin.roiCenterYoffset -= 20 // Move the image selection region down
+	myWin.App.Preferences().SetString("ROIcenterY", fmt.Sprintf("%d", myWin.roiCenterYoffset))
+
 	myWin.roiChanged = true
 	if myWin.fileIndex == 0 {
 		displayFitsImage()
@@ -399,6 +411,8 @@ func moveRoiUp() {
 
 func moveRoiDown() {
 	myWin.roiCenterYoffset += 20 // Move the image selection region up
+	myWin.App.Preferences().SetString("ROIcenterY", fmt.Sprintf("%d", myWin.roiCenterYoffset))
+
 	myWin.roiChanged = true
 	if myWin.fileIndex == 0 {
 		displayFitsImage()
@@ -410,6 +424,8 @@ func moveRoiDown() {
 
 func moveRoiLeft() {
 	myWin.roiCenterXoffset -= 20
+	myWin.App.Preferences().SetString("ROIcenterX", fmt.Sprintf("%d", myWin.roiCenterXoffset))
+
 	myWin.roiChanged = true
 	if myWin.fileIndex == 0 {
 		displayFitsImage()
@@ -421,6 +437,8 @@ func moveRoiLeft() {
 
 func moveRoiRight() {
 	myWin.roiCenterXoffset += 20
+	myWin.App.Preferences().SetString("ROIcenterX", fmt.Sprintf("%d", myWin.roiCenterXoffset))
+
 	myWin.roiChanged = true
 	if myWin.fileIndex == 0 {
 		displayFitsImage()
@@ -858,8 +876,6 @@ func displayFitsImage() fyne.CanvasObject {
 	imageToUse, _, timestamp := getFitsImageFromFilePath(myWin.fitsFilePaths[myWin.fileIndex])
 	myWin.timestampLabel.Text = timestamp
 
-	//imageToUse.ScaleMode = 0
-
 	if myWin.whiteSlider != nil {
 		if myWin.imageKind == "Gray32" {
 			imageToUse.Image.(*fltimg.Gray32).Max = float32(myWin.whiteSlider.Value)
@@ -894,7 +910,6 @@ func displayFitsImage() fyne.CanvasObject {
 		myWin.centerContent.Refresh()
 	}
 	myWin.waitingForFileRead = false // Signal to anyone waiting for file read completion
-	//fmt.Println(myWin.currentFilePath)
 
 	return imageToUse
 }
@@ -974,7 +989,7 @@ func getZeroPix(pathToFrameZero string) {
 }
 
 func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string) {
-	// This function has an important side effect: it creates the myWin.displayBuffer []byte
+	// This function has an important side effect: it fills the myWin.displayBuffer []byte
 	f := openFitsFile(filePath)
 	myWin.primaryHDU = f.HDU(0)
 	metaData, timestamp := formatMetaData(myWin.primaryHDU)
@@ -1018,11 +1033,15 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 		if kind == "Gray16" {
 			roi := goImage.(*image.Gray16).SubImage(image.Rect(x0, y0, x1, y1))
 			fitsImage = canvas.NewImageFromImage(roi) // This is a Fyne image
+			myWin.displayBuffer = make([]byte, len(fitsImage.Image.(*image.Gray16).Pix))
+			copy(myWin.displayBuffer, fitsImage.Image.(*image.Gray16).Pix)
 		}
 
 		if kind == "Gray" {
 			roi := goImage.(*image.Gray).SubImage(image.Rect(x0, y0, x1, y1))
 			fitsImage = canvas.NewImageFromImage(roi) // This is a Fyne image
+			myWin.displayBuffer = make([]byte, len(fitsImage.Image.(*image.Gray).Pix))
+			copy(myWin.displayBuffer, fitsImage.Image.(*image.Gray).Pix)
 		}
 
 		if kind == "Gray32" {
