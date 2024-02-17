@@ -17,3 +17,5 @@
     Looping can be done backwards as well as (the usual) forwards.
 
     Author: Bob Anderson  bob.anderson.ok@gmail.com (also PyMovie, PyOTE, R-ote, Occular)
+
+    17 February 2024
