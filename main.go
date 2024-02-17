@@ -31,6 +31,8 @@ import (
 )
 
 type Config struct {
+	displayBuffer        []byte
+	bytesPerPixel        int
 	roiEntry             *dialog.FormDialog
 	widthStr             binding.String
 	heightStr            binding.String
@@ -435,7 +437,7 @@ func applyRoi(checked bool) {
 	myWin.roiActive = checked
 	if checked {
 		myWin.roiChanged = true
-		//myWin.originalImage = myWin.fitsImages[0]
+		makeDisplayBuffer(myWin.roiWidth, myWin.roiHeight)
 		err := reprint.FromTo(&myWin.fitsImages[0], &myWin.originalImage)
 		if err != nil {
 			fmt.Println(fmt.Errorf("reprint: %w", err))
@@ -443,6 +445,8 @@ func applyRoi(checked bool) {
 		displayFitsImage()
 	} else {
 		//myWin.fitsImages[0] = myWin.originalImage
+		makeDisplayBuffer(myWin.imageWidth, myWin.imageHeight)
+
 		err := reprint.FromTo(&myWin.originalImage, &myWin.fitsImages[0])
 		if err != nil {
 			fmt.Println(fmt.Errorf("reprint: %w", err))
@@ -533,6 +537,7 @@ func processRoiEntryInfo(ok bool) {
 
 		// This causes the ROI change to be applied to the current image
 		myWin.roiChanged = true
+		makeDisplayBuffer(myWin.roiWidth, myWin.roiHeight)
 		displayFitsImage()
 	} else {
 		// User cancelled - restore old values
@@ -772,15 +777,13 @@ func chooseFitsFolder() {
 		if err != nil {
 			myWin.App.Preferences().SetString("lastFitsFolder", "")
 			lastFitsFolderStr = ""
-			//fmt.Println(fmt.Errorf("ListerForURI(%s) failed: %w", lastFitsFolderStr, err))
-			//return
-		} else {
-			//fmt.Println("lastFitsFolder:", fitsDir.Path())
 		}
-		if fitsDir != nil {
-			//fmt.Printf("\npath: %s  name: %s  scheme: %s, authority: %s\n\n",
-			//	fitsDir.Path(), fitsDir.Name(), fitsDir.Scheme(), fitsDir.Authority())
-		}
+
+		//if fitsDir != nil {
+		//	fmt.Printf("\npath: %s  name: %s  scheme: %s, authority: %s\n\n",
+		//		fitsDir.Path(), fitsDir.Name(), fitsDir.Scheme(), fitsDir.Authority())
+		//}
+
 		showFolder.SetLocation(fitsDir)
 		myWin.autoContrastNeeded = true
 	}
@@ -922,12 +925,32 @@ func openFitsFile(fitsFilePath string) *fitsio.File {
 
 func initializeImages() {
 
-	fitsImage, _, _ := getFitsImageFromFilePath(myWin.fitsFilePaths[0]) // side effect: myWin.primaryHDU is set
+	// side effect: myWin.primaryHDU is set
+	// side effect: myWin.displayBuffer []byte is created
+	fitsImage, _, _ := getFitsImageFromFilePath(myWin.fitsFilePaths[0])
 
 	myWin.imageWidth = fitsImage.Image.Bounds().Max.X
 	myWin.imageHeight = fitsImage.Image.Bounds().Max.Y
 
 	myWin.fitsImages = append(myWin.fitsImages, fitsImage)
+
+	goImage := myWin.primaryHDU.(fitsio.Image).Image()
+	kind := reflect.TypeOf(goImage).Elem().Name()
+
+	switch kind {
+	case "Gray":
+		myWin.bytesPerPixel = 1
+	case "Gray16":
+		myWin.bytesPerPixel = 2
+	case "Gray32":
+		myWin.bytesPerPixel = 4
+	default:
+		msg := fmt.Sprintf("%s is not an image kind that is supported.", kind)
+		dialog.ShowInformation("Oops", msg, myWin.parentWindow)
+		return
+	}
+
+	makeDisplayBuffer(myWin.imageWidth, myWin.imageHeight)
 
 	getZeroPix(myWin.fitsFilePaths[0])
 
@@ -951,6 +974,7 @@ func getZeroPix(pathToFrameZero string) {
 }
 
 func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string) {
+	// This function has an important side effect: it creates the myWin.displayBuffer []byte
 	f := openFitsFile(filePath)
 	myWin.primaryHDU = f.HDU(0)
 	metaData, timestamp := formatMetaData(myWin.primaryHDU)
@@ -1018,6 +1042,13 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 	//fitsImage.FillMode = canvas.ImageFillOriginal
 	fitsImage.FillMode = canvas.ImageFillContain
 	return fitsImage, metaData, timestamp
+}
+
+func makeDisplayBuffer(width, height int) {
+	myWin.displayBuffer = make([]byte, width*height*myWin.bytesPerPixel)
+	// TODO Remove this print statement
+	fmt.Printf("makeDisplayBuffer() made %d*%d*%d display buffer\n",
+		width, height, myWin.bytesPerPixel)
 }
 
 func formatMetaData(primaryHDU fitsio.HDU) ([]string, string) {
