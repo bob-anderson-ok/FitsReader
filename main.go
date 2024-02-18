@@ -1,5 +1,3 @@
-// //go:build darwin
-
 package main
 
 import (
@@ -18,7 +16,6 @@ import (
 	"github.com/astrogo/fitsio"
 	"github.com/astrogo/fitsio/fltimg"
 	"github.com/montanaflynn/stats"
-	"github.com/qdm12/reprint"
 	_ "github.com/qdm12/reprint"
 	"image"
 	"image/color"
@@ -32,6 +29,7 @@ import (
 
 type Config struct {
 	displayBuffer        []byte
+	workingBuffer        []byte
 	bytesPerPixel        int
 	roiEntry             *dialog.FormDialog
 	widthStr             binding.String
@@ -42,6 +40,10 @@ type Config struct {
 	roiChanged           bool
 	roiCenterXoffset     int // center has offset == 0
 	roiCenterYoffset     int // center has offset == 0
+	x0                   int // ROI corners
+	y0                   int
+	x1                   int
+	y1                   int
 	upButton             *widget.Button
 	downButton           *widget.Button
 	leftButton           *widget.Button
@@ -59,7 +61,6 @@ type Config struct {
 	autoContrastNeeded   bool
 	fileSlider           *widget.Slider
 	centerContent        *fyne.Container
-	zeroPix              []byte
 	fitsFilePaths        []string
 	numFiles             int
 	waitingForFileRead   bool
@@ -83,27 +84,14 @@ type Config struct {
 	loopEndIndex         int
 }
 
-const DefaultImageName = "FITS-player-default-image.fits"
-
-const version = " 1.2.2"
+const version = " 1.2.3"
 
 //go:embed help.txt
 var helpText string
 
-//go:embed FITS-player-default-image.fits
-var defaultImageFile []byte
-
 var myWin Config
 
 func main() {
-
-	// Copy our embedded default image file to the current working directory
-	var permissions os.FileMode
-	permissions = 0666
-	err := os.WriteFile(DefaultImageName, defaultImageFile, permissions)
-	if err != nil {
-		panic(err)
-	}
 
 	// We supply an ID (hopefully unique) because we need to use the preferences API
 	myApp := app.NewWithID("com.gmail.ok.anderson.bob")
@@ -164,6 +152,8 @@ func main() {
 	myWin.playDelay = 97 * time.Millisecond // 100 - 3
 	leftItem.Add(selector)
 
+	leftItem.Add(widget.NewButton("Help", func() { showSplash() }))
+
 	// These are left in if somebody requests a white theme option using buttons
 	//leftItem.Add(widget.NewButton("Dark theme", func() {
 	//	myApp.Settings().SetTheme(&forcedVariant{Theme: theme.DefaultTheme(), variant: theme.VariantDark})
@@ -214,7 +204,7 @@ func main() {
 	leftItem.Add(toolBar2)
 	leftItem.Add(toolBar3)
 
-	myWin.drawROIbutton = widget.NewButton("Show ROI", func() { drawROI() })
+	myWin.drawROIbutton = widget.NewButton("Show ROI", func() { showROI() })
 	leftItem.Add(myWin.drawROIbutton)
 
 	disableRoiControls()
@@ -226,7 +216,7 @@ func main() {
 
 	myWin.fileLabel = widget.NewLabel("File name goes here")
 
-	myWin.timestampLabel = canvas.NewText("Hello world", color.NRGBA{R: 255, A: 255})
+	myWin.timestampLabel = canvas.NewText("<timestamp goes here>", color.NRGBA{R: 255, A: 255})
 	myWin.timestampLabel.TextSize = 25
 
 	row1 := container.NewHBox(layout.NewSpacer(), myWin.timestampLabel, layout.NewSpacer())
@@ -246,35 +236,26 @@ func main() {
 
 	bottomItem := container.NewVBox(myWin.fileSlider, toolBar, row1, row2)
 
-	initialImage := displayFitsImage() // Get the initial image
-
-	//initialImage = wrapper.MakeTappable(initialImage, func(ev *fyne.PointEvent) { tellMeWhatHappened(ev) })
-
+	centerItem := widget.NewLabel("") // Blank placeholder
 	centerContent := container.NewBorder(
 		nil,
 		bottomItem,
 		leftItem,
 		rightItem,
-		initialImage)
+		centerItem)
 
 	myWin.centerContent = centerContent
 	w.SetContent(myWin.centerContent)
 	w.CenterOnScreen()
-	go showSplash()
 
 	w.ShowAndRun()
 }
 
-func drawROI() {
-	if myWin.fileIndex != 0 {
-		//myWin.drawROIbutton.Disable()
-		dialog.ShowInformation("Sorry", "ROI outline can only be drawn on the first image.",
-			myWin.parentWindow)
-		return
-	}
-
+func showROI() {
 	if myWin.roiActive {
 		myWin.roiCheckbox.SetChecked(false)
+		myWin.roiActive = false
+		displayFitsImage()
 	}
 
 	x0 := myWin.roiCenterXoffset + myWin.imageWidth/2 - myWin.roiWidth/2
@@ -286,114 +267,46 @@ func drawROI() {
 
 	if myWin.imageKind == "Gray16" {
 		for i := x0; i < x1; i++ {
-			myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray16).Set(i, y0, color.White)
+			myWin.fitsImages[0].Image.(*image.Gray16).Set(i, y0, color.White)
 		}
 		for i := x0; i < x1+1; i++ {
-			myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray16).Set(i, y1, color.White)
+			myWin.fitsImages[0].Image.(*image.Gray16).Set(i, y1, color.White)
 		}
 		for i := y0; i < y1; i++ {
-			myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray16).Set(x0, i, color.White)
+			myWin.fitsImages[0].Image.(*image.Gray16).Set(x0, i, color.White)
 		}
 		for i := y0; i < y1; i++ {
-			myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray16).Set(x1, i, color.White)
+			myWin.fitsImages[0].Image.(*image.Gray16).Set(x1, i, color.White)
 		}
 	}
 
 	if myWin.imageKind == "Gray" {
 		for i := x0; i < x1; i++ {
-			myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray).Set(i, y0, color.White)
+			myWin.fitsImages[0].Image.(*image.Gray).Set(i, y0, color.White)
 		}
 		for i := x0; i < x1+1; i++ {
-			myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray).Set(i, y1, color.White)
+			myWin.fitsImages[0].Image.(*image.Gray).Set(i, y1, color.White)
 		}
 		for i := y0; i < y1; i++ {
-			myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray).Set(x0, i, color.White)
+			myWin.fitsImages[0].Image.(*image.Gray).Set(x0, i, color.White)
 		}
 		for i := y0; i < y1; i++ {
-			myWin.fitsImages[myWin.fileIndex].Image.(*image.Gray).Set(x1, i, color.White)
+			myWin.fitsImages[0].Image.(*image.Gray).Set(x1, i, color.White)
 		}
 	}
 	myWin.centerContent.Refresh()
 }
-
-//func tellMeWhatHappened(ev *fyne.PointEvent) {
-//	fmt.Printf("Got a click @ x=%0.2f  y=%0.2f\n", ev.Position.X, ev.Position.Y)
-//	if myWin.centerUnderlay != nil {
-//		canvasWidth := myWin.centerUnderlay.Size().Width
-//		canvasHeight := myWin.centerUnderlay.Size().Height
-//		canvasAspect := canvasWidth / canvasHeight
-//		fmt.Printf("canvasWidth (fyne units): %0.2f  canvasHeight (fyne units): %0.2f  canvasAspect: %0.2f\n",
-//			canvasWidth, canvasHeight, canvasAspect)
-//		imageAspect := float32(myWin.imageWidth) / float32(myWin.imageHeight)
-//		fmt.Printf("imageWidth (pixels): %d  heightHeight (pixels): %d  imageAspect: %0.2f\n",
-//			myWin.imageWidth, myWin.imageHeight, imageAspect)
-//		psVertical := canvasHeight / float32(myWin.imageHeight)
-//		psHorizontal := canvasWidth / float32(myWin.imageWidth)
-//		fmt.Printf("psV: %0.3f  pdH: %0.3f\n", psVertical, psHorizontal)
-//
-//		var fyneUnitToPixel float32
-//		var topSpace float32
-//		var sideSpace float32
-//
-//		if canvasAspect >= imageAspect {
-//			fyneUnitToPixel = psVertical
-//			topSpace = 0.0
-//			sideSpace = canvasWidth - fyneUnitToPixel*float32(myWin.imageWidth)
-//		} else {
-//			fyneUnitToPixel = psHorizontal
-//			sideSpace = 0.0
-//			topSpace = canvasHeight - fyneUnitToPixel*float32(myWin.imageHeight)
-//		}
-//
-//		xPosPixels := int(math.Round(float64((ev.Position.X - sideSpace/2) / fyneUnitToPixel)))
-//		yPosPixels := int(math.Round(float64((ev.Position.Y - topSpace/2) / fyneUnitToPixel)))
-//		fmt.Printf("topSpace: %0.3f  sideSpace: %0.3f\n", topSpace, sideSpace)
-//		fmt.Printf("xPosPixels: %d  yPosPixels: %d\n", xPosPixels, yPosPixels)
-//		myWin.roiCenterXoffset = xPosPixels - myWin.imageWidth/2
-//		myWin.roiCenterYoffset = yPosPixels - myWin.imageHeight/2
-//		if myWin.roiCenterXoffset < -myWin.imageWidth/2 {
-//			myWin.roiCenterXoffset = -myWin.imageWidth / 2
-//		}
-//		if myWin.roiCenterXoffset > myWin.imageWidth/2 {
-//			myWin.roiCenterXoffset = myWin.imageWidth / 2
-//		}
-//		if myWin.roiCenterYoffset < -myWin.imageHeight/2 {
-//			myWin.roiCenterYoffset = -myWin.imageHeight / 2
-//		}
-//		if myWin.roiCenterYoffset > myWin.imageHeight/2 {
-//			myWin.roiCenterYoffset = myWin.imageHeight / 2
-//		}
-//		fmt.Printf("centerXoffset: %d  centerYoffset: %d\n", myWin.roiCenterXoffset, myWin.roiCenterYoffset)
-//		if myWin.roiActive {
-//			myWin.roiCheckbox.SetChecked(false)
-//			//myWin.roiActive = false
-//			//applyRoi(false)
-//		} else {
-//			myWin.roiCheckbox.SetChecked(true)
-//
-//			//myWin.roiActive = true
-//			//applyRoi(true)
-//		}
-//	}
-//}
 
 func moveRoiCenter() {
 	myWin.roiCenterXoffset = 0
 	myWin.roiCenterYoffset = 0
 	myWin.roiChanged = true
 
-	//_ = myWin.roiCenterXstr.Set(fmt.Sprintf("%d", myWin.roiCenterXoffset))
-	//_ = myWin.roiCenterYstr.Set(fmt.Sprintf("%d", myWin.roiCenterYoffset))
-
 	myWin.App.Preferences().SetString("ROIcenterX", fmt.Sprintf("%d", myWin.roiCenterXoffset))
 	myWin.App.Preferences().SetString("ROIcenterY", fmt.Sprintf("%d", myWin.roiCenterYoffset))
 
-	if myWin.fileIndex == 0 {
-		displayFitsImage()
-		drawROI()
-	} else {
-		displayFitsImage()
-	}
+	displayFitsImage()
+	showROI()
 }
 
 func moveRoiUp() {
@@ -401,12 +314,8 @@ func moveRoiUp() {
 	myWin.App.Preferences().SetString("ROIcenterY", fmt.Sprintf("%d", myWin.roiCenterYoffset))
 
 	myWin.roiChanged = true
-	if myWin.fileIndex == 0 {
-		displayFitsImage()
-		drawROI()
-	} else {
-		displayFitsImage()
-	}
+	displayFitsImage()
+	showROI()
 }
 
 func moveRoiDown() {
@@ -414,12 +323,8 @@ func moveRoiDown() {
 	myWin.App.Preferences().SetString("ROIcenterY", fmt.Sprintf("%d", myWin.roiCenterYoffset))
 
 	myWin.roiChanged = true
-	if myWin.fileIndex == 0 {
-		displayFitsImage()
-		drawROI()
-	} else {
-		displayFitsImage()
-	}
+	displayFitsImage()
+	showROI()
 }
 
 func moveRoiLeft() {
@@ -427,12 +332,8 @@ func moveRoiLeft() {
 	myWin.App.Preferences().SetString("ROIcenterX", fmt.Sprintf("%d", myWin.roiCenterXoffset))
 
 	myWin.roiChanged = true
-	if myWin.fileIndex == 0 {
-		displayFitsImage()
-		drawROI()
-	} else {
-		displayFitsImage()
-	}
+	displayFitsImage()
+	showROI()
 }
 
 func moveRoiRight() {
@@ -440,38 +341,21 @@ func moveRoiRight() {
 	myWin.App.Preferences().SetString("ROIcenterX", fmt.Sprintf("%d", myWin.roiCenterXoffset))
 
 	myWin.roiChanged = true
-	if myWin.fileIndex == 0 {
-		displayFitsImage()
-		drawROI()
-	} else {
-		displayFitsImage()
-	}
+	displayFitsImage()
+	showROI()
 }
 
 func applyRoi(checked bool) {
-	if myWin.currentFilePath == DefaultImageName {
-		return
-	}
+
 	myWin.roiActive = checked
 	if checked {
+		//printImageStats("apply ROI: ")
 		myWin.roiChanged = true
-		makeDisplayBuffer(myWin.roiWidth, myWin.roiHeight)
-		err := reprint.FromTo(&myWin.fitsImages[0], &myWin.originalImage)
-		if err != nil {
-			fmt.Println(fmt.Errorf("reprint: %w", err))
-		}
 		displayFitsImage()
 	} else {
-		//myWin.fitsImages[0] = myWin.originalImage
+		//printImageStats("remove ROI: ")
 		makeDisplayBuffer(myWin.imageWidth, myWin.imageHeight)
-
-		err := reprint.FromTo(&myWin.originalImage, &myWin.fitsImages[0])
-		if err != nil {
-			fmt.Println(fmt.Errorf("reprint: %w", err))
-		}
-		myWin.centerContent.Objects[0] = myWin.originalImage
-		myWin.centerContent.Objects[0] = myWin.fitsImages[0]
-		getZeroPix(myWin.fitsFilePaths[0])
+		restoreRect()
 		displayFitsImage()
 	}
 }
@@ -499,7 +383,6 @@ func disableRoiControls() {
 }
 
 func roiEntry() {
-
 	widthWidget := widget.NewEntryWithData(myWin.widthStr)
 	heightWidget := widget.NewEntryWithData(myWin.heightStr)
 	item1 := widget.NewFormItem("width", widthWidget)
@@ -577,22 +460,18 @@ func runLoop() {
 	}
 
 	if myWin.loopStartIndex > myWin.loopEndIndex {
-		//fmt.Println("Loop will be run in reverse")
 		playBackward(true)
 	} else {
-		//fmt.Println("Loop will run forward")
 		playForward(true)
 	}
 }
 
 func setLoopStart() {
 	myWin.loopStartIndex = int(myWin.fileSlider.Value)
-	//fmt.Printf("Loop start index: %d\n", myWin.loopStartIndex)
 }
 
 func setLoopEnd() {
 	myWin.loopEndIndex = int(myWin.fileSlider.Value)
-	//fmt.Printf("Loop end index: %d\n", myWin.loopEndIndex)
 }
 
 type forcedVariant struct {
@@ -670,7 +549,6 @@ func checkForFrameRateSelected() bool {
 }
 
 func setPlayDelay(opt string) {
-	//fmt.Printf("|%s| was selected\n", opt)
 	myWin.playDelay = 100 * time.Millisecond
 	switch opt {
 	case "1 fps":
@@ -748,7 +626,6 @@ func processBackOneFrame() {
 		myWin.fileSlider.SetValue(0)
 	} else {
 		myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
-		//displayFitsImage()
 	}
 	myWin.fileSlider.SetValue(float64(myWin.fileIndex)) // This causes a call to displayFitsImage
 	myWin.fileSlider.Refresh()
@@ -765,7 +642,6 @@ func processForwardOneFrame() {
 		myWin.fileIndex = numFrames - 1
 	} else {
 		myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
-		//displayFitsImage()
 	}
 	myWin.fileSlider.SetValue(float64(myWin.fileIndex)) // This causes a call to displayFitsImage()
 	return
@@ -796,11 +672,6 @@ func chooseFitsFolder() {
 			myWin.App.Preferences().SetString("lastFitsFolder", "")
 			lastFitsFolderStr = ""
 		}
-
-		//if fitsDir != nil {
-		//	fmt.Printf("\npath: %s  name: %s  scheme: %s, authority: %s\n\n",
-		//		fitsDir.Path(), fitsDir.Name(), fitsDir.Scheme(), fitsDir.Authority())
-		//}
 
 		showFolder.SetLocation(fitsDir)
 		myWin.autoContrastNeeded = true
@@ -845,7 +716,6 @@ func showMetaData() {
 	helpWin := myWin.App.NewWindow("FITS Meta-data")
 	helpWin.Resize(fyne.Size{Height: 600, Width: 700})
 	_, metaDataList, _ := getFitsImageFromFilePath(myWin.fitsFilePaths[myWin.fileIndex])
-	//metaDataList := myWin.metaData[myWin.fileIndex]
 	metaData := ""
 	for _, line := range metaDataList {
 		metaData += line + "\n"
@@ -857,22 +727,10 @@ func showMetaData() {
 }
 
 func displayFitsImage() fyne.CanvasObject {
-	fitsFilePath := ""
-
-	// If no fits folder has been selected yet, use the default image
-	if myWin.numFiles == 0 {
-		myWin.numFiles = 1
-		fitsFilePath = DefaultImageName
-		myWin.fitsFilePaths = append(myWin.fitsFilePaths, fitsFilePath)
-		initializeImages()
-		myWin.fileIndex = 0
-		myWin.fileSlider.SetValue(0)
-	} else {
-		fitsFilePath = myWin.currentFilePath
-	}
 
 	myWin.fileLabel.SetText(myWin.fitsFilePaths[myWin.fileIndex])
 
+	// A side effect of this call is that myWin.displayBuffer is filled
 	imageToUse, _, timestamp := getFitsImageFromFilePath(myWin.fitsFilePaths[myWin.fileIndex])
 	myWin.timestampLabel.Text = timestamp
 
@@ -881,38 +739,102 @@ func displayFitsImage() fyne.CanvasObject {
 			imageToUse.Image.(*fltimg.Gray32).Max = float32(myWin.whiteSlider.Value)
 			imageToUse.Image.(*fltimg.Gray32).Min = float32(myWin.blackSlider.Value)
 		} else if myWin.imageKind == "Gray" {
-			if myWin.fileIndex == 0 { // Save the (currently unmodified) index 0 image pixels
-				stretch(myWin.zeroPix, myWin.fitsImages[0].Image.(*image.Gray).Pix, "Gray")
-			} else {
-				stretch(imageToUse.Image.(*image.Gray).Pix, myWin.fitsImages[0].Image.(*image.Gray).Pix, "Gray")
-			}
+			applyContrastControls(imageToUse.Image.(*image.Gray).Pix, myWin.displayBuffer, "Gray")
 		} else if myWin.imageKind == "Gray16" {
-			if myWin.fileIndex == 0 { // Use the saved image 0 pixels as source
-				stretch(myWin.zeroPix, myWin.fitsImages[0].Image.(*image.Gray16).Pix, "Gray16")
-			} else {
-				stretch(imageToUse.Image.(*image.Gray16).Pix, myWin.fitsImages[0].Image.(*image.Gray16).Pix, "Gray16")
-			}
+			applyContrastControls(imageToUse.Image.(*image.Gray16).Pix, myWin.displayBuffer, "Gray16")
+			myWin.fitsImages[0].Image.(*image.Gray16).Pix = myWin.displayBuffer
 		} else {
 			fmt.Printf("The image kind (%s) is unrecognized.\n", myWin.imageKind)
 		}
 	}
 
-	if myWin.centerContent != nil {
-		if myWin.fileIndex == 0 { // Initialize the target where pixels will be displayed from.
-			myWin.centerContent.Objects[0] = myWin.fitsImages[0]
-			//imgWidth := myWin.centerContent.Objects[0].(*canvas.Image).Size().Width
-			//imgHeight := myWin.centerContent.Objects[0].(*canvas.Image).Size().Height
-			//fmt.Printf("width: %0.2f  height: %0.2f\n", imgWidth, imgHeight)
-
-			//myWin.centerUnderlay = myWin.centerContent.Objects[0].(*canvas.Image)
-			//myWin.centerContent.Objects[0] = wrapper.MakeTappable(myWin.centerContent.Objects[0], func(ev *fyne.PointEvent) { tellMeWhatHappened(ev) })
+	if myWin.imageKind == "Gray16" {
+		//printImageStats("@point 1")
+		copy(myWin.fitsImages[0].Image.(*image.Gray16).Pix, myWin.displayBuffer)
+		if !myWin.roiActive {
+			restoreRect()
+		} else {
+			setROIrect()
 		}
-		myWin.centerContent.Refresh()
 	}
+	if myWin.imageKind == "Gray" {
+		//printImageStats("@point 2")
+		myWin.fitsImages[0].Image.(*image.Gray).Pix = myWin.displayBuffer
+		if !myWin.roiActive {
+			restoreRect()
+		} else {
+			setROIrect()
+		}
+	}
+	myWin.centerContent.Objects[0] = myWin.fitsImages[0]
+
+	myWin.centerContent.Refresh()
 	myWin.waitingForFileRead = false // Signal to anyone waiting for file read completion
 
 	return imageToUse
 }
+
+func restoreRect() {
+	if myWin.imageKind == "Gray16" {
+		myWin.fitsImages[0].Image.(*image.Gray16).Rect.Max = image.Point{
+			X: myWin.imageWidth,
+			Y: myWin.imageHeight,
+		}
+		myWin.fitsImages[0].Image.(*image.Gray16).Rect.Min = image.Point{
+			X: 0,
+			Y: 0,
+		}
+	}
+	if myWin.imageKind == "Gray" {
+		myWin.fitsImages[0].Image.(*image.Gray).Rect.Max = image.Point{
+			X: myWin.imageWidth,
+			Y: myWin.imageHeight,
+		}
+		myWin.fitsImages[0].Image.(*image.Gray).Rect.Min = image.Point{
+			X: 0,
+			Y: 0,
+		}
+	}
+}
+
+func setROIrect() {
+	if myWin.imageKind == "Gray16" {
+		myWin.fitsImages[0].Image.(*image.Gray16).Rect.Max = image.Point{
+			X: myWin.x1,
+			Y: myWin.y1,
+		}
+		myWin.fitsImages[0].Image.(*image.Gray16).Rect.Min = image.Point{
+			X: myWin.x0,
+			Y: myWin.y0,
+		}
+	}
+	if myWin.imageKind == "Gray" {
+		myWin.fitsImages[0].Image.(*image.Gray).Rect.Max = image.Point{
+			X: myWin.x1,
+			Y: myWin.x1,
+		}
+		myWin.fitsImages[0].Image.(*image.Gray).Rect.Min = image.Point{
+			X: myWin.x0,
+			Y: myWin.y0,
+		}
+	}
+}
+
+//func printImageStats(tag string) {
+//	if myWin.imageKind == "Gray16" {
+//		pixLength := len(myWin.fitsImages[0].Image.(*image.Gray16).Pix)
+//		stride := myWin.fitsImages[0].Image.(*image.Gray16).Stride
+//		rect := myWin.fitsImages[0].Image.(*image.Gray16).Rect
+//		fmt.Printf("%s pixLength: %d  stride: %d  rect: %v\n", tag, pixLength, stride, rect)
+//	}
+//
+//	if myWin.imageKind == "Gray" {
+//		pixLength := len(myWin.fitsImages[0].Image.(*image.Gray).Pix)
+//		stride := myWin.fitsImages[0].Image.(*image.Gray).Stride
+//		rect := myWin.fitsImages[0].Image.(*image.Gray).Rect
+//		fmt.Printf("%s pixLength: %d  stride: %d  rect: %v\n", tag, pixLength, stride, rect)
+//	}
+//}
 
 func openFitsFile(fitsFilePath string) *fitsio.File {
 	fileHandle, err1 := os.Open(fitsFilePath)
@@ -941,7 +863,6 @@ func openFitsFile(fitsFilePath string) *fitsio.File {
 func initializeImages() {
 
 	// side effect: myWin.primaryHDU is set
-	// side effect: myWin.displayBuffer []byte is created
 	fitsImage, _, _ := getFitsImageFromFilePath(myWin.fitsFilePaths[0])
 
 	myWin.imageWidth = fitsImage.Image.Bounds().Max.X
@@ -967,25 +888,7 @@ func initializeImages() {
 
 	makeDisplayBuffer(myWin.imageWidth, myWin.imageHeight)
 
-	getZeroPix(myWin.fitsFilePaths[0])
-
 	myWin.fileSlider.SetValue(0)
-
-}
-
-func getZeroPix(pathToFrameZero string) {
-	fitsImage, _, _ := getFitsImageFromFilePath(pathToFrameZero)
-	// Save the pixels from the first image because we modify in place those pixels during image display
-	if myWin.imageKind == "Gray16" {
-		myWin.zeroPix = make([]byte, len(fitsImage.Image.(*image.Gray16).Pix))
-		copy(myWin.zeroPix, fitsImage.Image.(*image.Gray16).Pix)
-	}
-
-	// Save the pixels from the first image because we modify in place those pixels during image display
-	if myWin.imageKind == "Gray" {
-		myWin.zeroPix = make([]byte, len(fitsImage.Image.(*image.Gray).Pix))
-		copy(myWin.zeroPix, fitsImage.Image.(*image.Gray).Pix)
-	}
 }
 
 func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string) {
@@ -1007,14 +910,14 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 	fitsImage := canvas.NewImageFromImage(goImage) // This is a Fyne image
 
 	if myWin.roiActive {
-		// Fix user setting ROI size too large
+		// Fix user setting ROI X size too large
 		width := goImage.Bounds().Max.X
 		if myWin.roiWidth > width {
 			myWin.roiWidth = width
 			_ = myWin.widthStr.Set(strconv.Itoa(width))
 		}
 
-		// Fix user setting ROI size too large
+		// Fix user setting ROI Y size too large
 		height := goImage.Bounds().Max.Y
 		if myWin.roiHeight > height {
 			myWin.roiHeight = height
@@ -1028,20 +931,26 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 		y0 := centerY - myWin.roiHeight/2 + myWin.roiCenterYoffset
 		x1 := x0 + myWin.roiWidth
 		y1 := y0 + myWin.roiHeight
+
+		myWin.x0 = x0
+		myWin.y0 = y0
+		myWin.x1 = x1
+		myWin.y1 = y1
+
 		//fmt.Println(x0, y0, x1, y1, image.Rect(x0, y0, x1, y1))
 
 		if kind == "Gray16" {
 			roi := goImage.(*image.Gray16).SubImage(image.Rect(x0, y0, x1, y1))
 			fitsImage = canvas.NewImageFromImage(roi) // This is a Fyne image
-			myWin.displayBuffer = make([]byte, len(fitsImage.Image.(*image.Gray16).Pix))
-			copy(myWin.displayBuffer, fitsImage.Image.(*image.Gray16).Pix)
+			myWin.workingBuffer = make([]byte, len(fitsImage.Image.(*image.Gray16).Pix))
+			copy(myWin.workingBuffer, fitsImage.Image.(*image.Gray16).Pix)
 		}
 
 		if kind == "Gray" {
 			roi := goImage.(*image.Gray).SubImage(image.Rect(x0, y0, x1, y1))
 			fitsImage = canvas.NewImageFromImage(roi) // This is a Fyne image
-			myWin.displayBuffer = make([]byte, len(fitsImage.Image.(*image.Gray).Pix))
-			copy(myWin.displayBuffer, fitsImage.Image.(*image.Gray).Pix)
+			myWin.workingBuffer = make([]byte, len(fitsImage.Image.(*image.Gray).Pix))
+			copy(myWin.workingBuffer, fitsImage.Image.(*image.Gray).Pix)
 		}
 
 		if kind == "Gray32" {
@@ -1053,8 +962,16 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 				myWin.roiChanged = false
 				myWin.fitsImages[0] = fitsImage
 				myWin.centerContent.Objects[0] = fitsImage
-				getZeroPix(filePath)
 			}
+		}
+	}
+
+	if !myWin.roiActive {
+		if kind == "Gray" {
+			copy(myWin.workingBuffer, fitsImage.Image.(*image.Gray).Pix)
+		}
+		if kind == "Gray16" {
+			copy(myWin.workingBuffer, fitsImage.Image.(*image.Gray16).Pix)
 		}
 	}
 
@@ -1065,9 +982,10 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 
 func makeDisplayBuffer(width, height int) {
 	myWin.displayBuffer = make([]byte, width*height*myWin.bytesPerPixel)
-	// TODO Remove this print statement
-	fmt.Printf("makeDisplayBuffer() made %d*%d*%d display buffer\n",
-		width, height, myWin.bytesPerPixel)
+	myWin.workingBuffer = make([]byte, width*height*myWin.bytesPerPixel)
+	// Diagnostic print ...
+	//fmt.Printf("makeDisplayBuffer() made %d*%d*%d display buffer\n",
+	//	width, height, myWin.bytesPerPixel)
 }
 
 func formatMetaData(primaryHDU fitsio.HDU) ([]string, string) {
@@ -1090,14 +1008,12 @@ func formatMetaData(primaryHDU fitsio.HDU) ([]string, string) {
 			timestampFound = true
 			myWin.timestamp = fmt.Sprintf("%v", card.Value)
 			myWin.timestamp = strings.Replace(myWin.timestamp, "T", " ", 1)
-			//myWin.timestampLabel.SetText(myWin.timestamp)
 			myWin.timestampLabel.Text = myWin.timestamp
 		}
 	}
 
 	if !timestampFound {
 		myWin.timestamp = "<no timestamp found>"
-		//myWin.timestampLabel.SetText(myWin.timestamp)
 		myWin.timestampLabel.Text = myWin.timestamp
 	}
 
@@ -1134,30 +1050,29 @@ func getStd(dataIn []byte, stride int, clip int) (float64, error) {
 	return stats.StandardDeviation(data)
 }
 
-func stretch(source []byte, old []byte, kind string) {
+func applyContrastControls(original, stretched []byte, kind string) {
+	// The slice stretched is modified. The slice original is untouched
 	var floatVal float64
 	var scale float64
 
-	// TODO Remove this debug print
-	if len(source) != len(old) {
-		fmt.Printf("source: %d bytes  old: %d bytes\n", len(source), len(old))
+	if len(original) > len(stretched) { // This should never happen - it's a coding error
+		msg := fmt.Sprintf("input length: %d bytes  output length: %d bytes\n", len(original), len(stretched))
+		dialog.ShowInformation("Oops - programming error", msg, myWin.parentWindow)
 		return
 	}
-	//fmt.Printf("source: %d bytes  old: %d bytes\n", len(source), len(old))
 
 	bot := myWin.blackSlider.Value
 	top := myWin.whiteSlider.Value
 
-	//if kind == "Gray16" {
 	var std float64
 	var err error
 
 	if myWin.autoContrastNeeded {
 		myWin.autoContrastNeeded = false
 		if kind == "Gray16" {
-			std, err = getStd(source, 2, 255)
+			std, err = getStd(original, 2, 255)
 		} else {
-			std, err = getStd(source, 1, 255)
+			std, err = getStd(original, 1, 255)
 		}
 		if err != nil {
 			fmt.Println(fmt.Errorf("getstd(): %w", err))
@@ -1176,10 +1091,6 @@ func stretch(source []byte, old []byte, kind string) {
 	myWin.blackSlider.SetValue(bot)
 	myWin.whiteSlider.SetValue(top)
 
-	//bot = bot - math.Sqrt(255-bot)
-	//top = top - math.Sqrt(255-top)
-	//}
-
 	invert := bot > top
 	if top > bot {
 		scale = 255 / (top - bot)
@@ -1190,25 +1101,25 @@ func stretch(source []byte, old []byte, kind string) {
 		top = temp
 	}
 
-	for i := 0; i < len(source); i++ {
-		if float64(source[i]) <= bot {
-			old[i] = 0
-		} else if float64(source[i]) > top {
-			old[i] = 255
+	for i := 0; i < len(original); i++ {
+		if float64(original[i]) <= bot {
+			stretched[i] = 0
+		} else if float64(original[i]) > top {
+			stretched[i] = 255
 		} else {
-			floatVal = scale * (float64(source[i]) - bot)
+			floatVal = scale * (float64(original[i]) - bot)
 			intVal := int(math.Round(floatVal))
-			old[i] = byte(intVal)
+			stretched[i] = byte(intVal)
 		}
 		if invert {
-			old[i] = ^old[i]
+			stretched[i] = ^stretched[i]
 		}
 	}
 	return
 }
 
 func showSplash() {
-	time.Sleep(500 * time.Millisecond)
+	//time.Sleep(500 * time.Millisecond)
 	helpWin := myWin.App.NewWindow("Hello")
 	helpWin.Resize(fyne.Size{Height: 450, Width: 700})
 	scrollableText := container.NewVScroll(widget.NewRichTextWithText(helpText))
