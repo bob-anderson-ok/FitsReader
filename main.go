@@ -65,12 +65,9 @@ type Config struct {
 	numFiles             int
 	waitingForFileRead   bool
 	fitsImages           []*canvas.Image
-	originalImage        *canvas.Image
-	centerUnderlay       *canvas.Image
 	imageKind            string
 	fileLabel            *widget.Label
 	timestampLabel       *canvas.Text
-	busyLabel            *canvas.Text
 	fileIndex            int
 	autoPlayEnabled      bool
 	playBackMilliseconds int64
@@ -84,7 +81,7 @@ type Config struct {
 	loopEndIndex         int
 }
 
-const version = " 1.2.3"
+const version = " 1.2.4"
 
 //go:embed help.txt
 var helpText string
@@ -100,13 +97,8 @@ func main() {
 	// We start app using the dark theme. There are buttons to allow theme change
 	myApp.Settings().SetTheme(&forcedVariant{Theme: theme.DefaultTheme(), variant: theme.VariantDark})
 
-	myWin.autoPlayEnabled = false
-	myWin.loopStartIndex = -1
-	myWin.loopEndIndex = -1
-
 	myWin.widthStr = binding.NewString()
 	myWin.heightStr = binding.NewString()
-	myWin.roiActive = false
 
 	widthStr := myWin.App.Preferences().StringWithFallback("ROIwidth", "600")
 	heightStr := myWin.App.Preferences().StringWithFallback("ROIheight", "400")
@@ -121,7 +113,7 @@ func main() {
 	myWin.roiCenterXoffset, _ = strconv.Atoi(roiCenterXstr) // Ignore error
 	myWin.roiCenterYoffset, _ = strconv.Atoi(roiCenterYstr) // Ignore error
 
-	myWin.roiChanged = false
+	initializeConfig(false)
 
 	w := myApp.NewWindow("IOTA FITS video player" + version)
 	w.Resize(fyne.Size{Height: 800, Width: 1200})
@@ -249,6 +241,33 @@ func main() {
 	w.CenterOnScreen()
 
 	w.ShowAndRun()
+}
+
+func initializeConfig(running bool) {
+	myWin.autoPlayEnabled = false
+	myWin.loopStartIndex = -1
+	myWin.loopEndIndex = -1
+	myWin.roiActive = false
+	myWin.roiChanged = false
+
+	if running { // Must be running to have myWin.roiCheckbox built
+		myWin.roiCheckbox.SetChecked(false)
+	}
+
+	myWin.displayBuffer = nil
+	myWin.workingBuffer = nil
+	myWin.bytesPerPixel = 0
+	myWin.x0 = 0
+	myWin.y0 = 0
+	myWin.x1 = 0
+	myWin.x1 = 0
+	myWin.fitsFilePaths = nil
+	myWin.waitingForFileRead = false
+	myWin.numFiles = 0
+	myWin.fileIndex = 0
+	myWin.autoPlayEnabled = false
+	myWin.currentFilePath = ""
+	myWin.timestamps = nil
 }
 
 func showROI() {
@@ -438,7 +457,7 @@ func processRoiEntryInfo(ok bool) {
 
 		// This causes the ROI change to be applied to the current image
 		myWin.roiChanged = true
-		makeDisplayBuffer(myWin.roiWidth, myWin.roiHeight)
+		//makeDisplayBuffer(myWin.roiWidth, myWin.roiHeight)
 		displayFitsImage()
 	} else {
 		// User cancelled - restore old values
@@ -687,6 +706,8 @@ func processFitsFolderSelection(path fyne.ListableURI, err error) {
 	}
 	if path != nil {
 		//fmt.Printf("folder selected: %s\n", path)
+		initializeConfig(true)
+
 		myWin.App.Preferences().SetString("lastFitsFolder", path.Path())
 		myWin.fitsFilePaths = getFitsFilenames(path.Path())
 		if len(myWin.fitsFilePaths) == 0 {
@@ -716,6 +737,11 @@ func showMetaData() {
 	helpWin := myWin.App.NewWindow("FITS Meta-data")
 	helpWin.Resize(fyne.Size{Height: 600, Width: 700})
 	_, metaDataList, _ := getFitsImageFromFilePath(myWin.fitsFilePaths[myWin.fileIndex])
+
+	if metaDataList == nil {
+		return
+	}
+
 	metaData := ""
 	for _, line := range metaDataList {
 		metaData += line + "\n"
@@ -732,6 +758,11 @@ func displayFitsImage() fyne.CanvasObject {
 
 	// A side effect of this call is that myWin.displayBuffer is filled
 	imageToUse, _, timestamp := getFitsImageFromFilePath(myWin.fitsFilePaths[myWin.fileIndex])
+
+	if imageToUse == nil {
+		return nil
+	}
+
 	myWin.timestampLabel.Text = timestamp
 
 	if myWin.whiteSlider != nil {
@@ -744,7 +775,8 @@ func displayFitsImage() fyne.CanvasObject {
 			applyContrastControls(imageToUse.Image.(*image.Gray16).Pix, myWin.displayBuffer, "Gray16")
 			myWin.fitsImages[0].Image.(*image.Gray16).Pix = myWin.displayBuffer
 		} else {
-			fmt.Printf("The image kind (%s) is unrecognized.\n", myWin.imageKind)
+			//fmt.Printf("The image kind (%s) is unrecognized.\n", myWin.imageKind)
+			return nil
 		}
 	}
 
@@ -865,6 +897,10 @@ func initializeImages() {
 	// side effect: myWin.primaryHDU is set
 	fitsImage, _, _ := getFitsImageFromFilePath(myWin.fitsFilePaths[0])
 
+	if fitsImage == nil {
+		return
+	}
+
 	myWin.imageWidth = fitsImage.Image.Bounds().Max.X
 	myWin.imageHeight = fitsImage.Image.Bounds().Max.Y
 
@@ -904,6 +940,10 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 	}
 
 	goImage := myWin.primaryHDU.(fitsio.Image).Image()
+	if goImage == nil {
+		dialog.ShowInformation("Oops", "No images are present in the .fits file", myWin.parentWindow)
+		return nil, nil, ""
+	}
 	kind := reflect.TypeOf(goImage).Elem().Name()
 	myWin.imageKind = kind
 

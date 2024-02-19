@@ -16,6 +16,8 @@
 
     Looping can be done backwards as well as (the usual) forwards.
 
+    Playback should be paused when setting ROI dimensions.
+
     Author: Bob Anderson  bob.anderson.ok@gmail.com (also PyMovie, PyOTE, R-ote, Occular)
 
-    17 February 2024
+    18 February 2024
