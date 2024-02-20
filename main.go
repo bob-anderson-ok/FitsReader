@@ -38,8 +38,6 @@ type Config struct {
 	roiHeight            int
 	roiActive            bool
 	roiChanged           bool
-	roiCenterXoffset     int // center has offset == 0
-	roiCenterYoffset     int // center has offset == 0
 	x0                   int // ROI corners
 	y0                   int
 	x1                   int
@@ -102,18 +100,27 @@ func main() {
 	myWin.widthStr = binding.NewString()
 	myWin.heightStr = binding.NewString()
 
-	widthStr := myWin.App.Preferences().StringWithFallback("ROIwidth", "600")
-	heightStr := myWin.App.Preferences().StringWithFallback("ROIheight", "400")
-	roiCenterXstr := myWin.App.Preferences().StringWithFallback("ROIcenterX", "0")
-	roiCenterYstr := myWin.App.Preferences().StringWithFallback("ROIcenterY", "0")
+	widthStr := myWin.App.Preferences().StringWithFallback("ROIwidth", "100")
+	heightStr := myWin.App.Preferences().StringWithFallback("ROIheight", "100")
 
 	_ = myWin.widthStr.Set(widthStr)   // Ignore possibility of error
 	_ = myWin.heightStr.Set(heightStr) // Ignore possibility of error
 
-	myWin.roiWidth, _ = strconv.Atoi(widthStr)              // Ignore error
-	myWin.roiHeight, _ = strconv.Atoi(heightStr)            // Ignore error
-	myWin.roiCenterXoffset, _ = strconv.Atoi(roiCenterXstr) // Ignore error
-	myWin.roiCenterYoffset, _ = strconv.Atoi(roiCenterYstr) // Ignore error
+	myWin.roiWidth, _ = strconv.Atoi(widthStr)   // Ignore error
+	myWin.roiHeight, _ = strconv.Atoi(heightStr) // Ignore error
+
+	myWin.x0, _ = strconv.Atoi(myWin.App.Preferences().StringWithFallback("ROIx0", "0"))
+	myWin.x1, _ = strconv.Atoi(myWin.App.Preferences().StringWithFallback("ROIx1", "0"))
+	myWin.y0, _ = strconv.Atoi(myWin.App.Preferences().StringWithFallback("ROIy0", "0"))
+	myWin.y1, _ = strconv.Atoi(myWin.App.Preferences().StringWithFallback("ROIy1", "0"))
+
+	if myWin.y0 == myWin.y1 {
+		myWin.y1 += myWin.roiHeight
+	}
+
+	if myWin.x0 == myWin.x1 {
+		myWin.x1 += myWin.roiWidth
+	}
 
 	initializeConfig(false)
 
@@ -259,10 +266,8 @@ func initializeConfig(running bool) {
 	myWin.displayBuffer = nil
 	myWin.workingBuffer = nil
 	myWin.bytesPerPixel = 0
-	myWin.x0 = 0
-	myWin.y0 = 0
-	myWin.x1 = 0
-	myWin.x1 = 0
+	myWin.xJogSize = 20
+	myWin.yJogSize = 20
 	myWin.fitsFilePaths = nil
 	myWin.waitingForFileRead = false
 	myWin.numFiles = 0
@@ -273,28 +278,17 @@ func initializeConfig(running bool) {
 }
 
 func showROI() {
+	validateROIparameters()
 	if myWin.roiActive {
 		myWin.roiCheckbox.SetChecked(false)
 		myWin.roiActive = false
 		displayFitsImage()
 	}
 
-	x0 := myWin.roiCenterXoffset + myWin.imageWidth/2 - myWin.roiWidth/2
-	if x0 < 0 {
-		x0 = 0
-	}
-	y0 := myWin.roiCenterYoffset + myWin.imageHeight/2 - myWin.roiHeight/2
-	if y0 < 0 {
-		y0 = 0
-	}
-	x1 := x0 + myWin.roiWidth
-	if x1 > myWin.imageWidth {
-		x1 = myWin.imageWidth
-	}
-	y1 := y0 + myWin.roiHeight
-	if y1 > myWin.imageHeight {
-		y1 = myWin.imageHeight
-	}
+	x0 := myWin.x0
+	x1 := myWin.x1
+	y0 := myWin.y0
+	y1 := myWin.y1
 
 	//fmt.Printf("x0: %d  y0: %d   x1: %d  y1: %d\n", x0, y0, x1, y1)
 
@@ -333,7 +327,8 @@ func showROI() {
 			myWin.fitsImages[0].Image.(*fltimg.Gray32).Set(i, y0, color.White)
 		}
 		for i := x0; i < x1+1; i++ {
-			myWin.fitsImages[0].Image.(*fltimg.Gray32).Set(i, y1, color.White)
+			// TODO Put this back to color.White
+			myWin.fitsImages[0].Image.(*fltimg.Gray32).Set(i, y1, color.Black)
 		}
 		for i := y0; i < y1; i++ {
 			myWin.fitsImages[0].Image.(*fltimg.Gray32).Set(x0, i, color.White)
@@ -345,7 +340,7 @@ func showROI() {
 
 	if myWin.imageKind == "Gray64" {
 		for i := x0; i < x1; i++ {
-			myWin.fitsImages[0].Image.(*fltimg.Gray64).Set(i, y0, color.White)
+			myWin.fitsImages[0].Image.(*fltimg.Gray64).Set(i, y0, color.Black)
 		}
 		for i := x0; i < x1+1; i++ {
 			myWin.fitsImages[0].Image.(*fltimg.Gray64).Set(i, y1, color.White)
@@ -362,21 +357,35 @@ func showROI() {
 }
 
 func moveRoiCenter() {
-	myWin.roiCenterXoffset = 0
-	myWin.roiCenterYoffset = 0
+	myWin.x0 = myWin.imageWidth/2 - myWin.roiWidth/2
+	myWin.y0 = myWin.imageHeight/2 - myWin.roiHeight/2
+	myWin.x1 = myWin.x0 + myWin.roiWidth - 1
+	myWin.y1 = myWin.y0 + myWin.roiHeight - 1
+
 	myWin.roiChanged = true
 
-	myWin.App.Preferences().SetString("ROIcenterX", fmt.Sprintf("%d", myWin.roiCenterXoffset))
-	myWin.App.Preferences().SetString("ROIcenterY", fmt.Sprintf("%d", myWin.roiCenterYoffset))
+	saveROItoPreferences()
 
 	displayFitsImage()
 	showROI()
 }
 
-func moveRoiUp() {
+func saveROItoPreferences() {
+	myWin.App.Preferences().SetString("ROIx0", fmt.Sprintf("%d", myWin.x0))
+	myWin.App.Preferences().SetString("ROIx1", fmt.Sprintf("%d", myWin.x1))
+	myWin.App.Preferences().SetString("ROIy0", fmt.Sprintf("%d", myWin.y0))
+	myWin.App.Preferences().SetString("ROIy1", fmt.Sprintf("%d", myWin.y1))
+}
 
-	myWin.roiCenterYoffset -= 20 // Move the image selection region down
-	myWin.App.Preferences().SetString("ROIcenterY", fmt.Sprintf("%d", myWin.roiCenterYoffset))
+func moveRoiUp() {
+	if myWin.y0 < myWin.yJogSize {
+		dialog.ShowInformation("Information", "ROI too close to image boundary", myWin.parentWindow)
+		return
+	}
+
+	myWin.y0 -= myWin.yJogSize
+	myWin.y1 -= myWin.yJogSize
+	saveROItoPreferences()
 
 	myWin.roiChanged = true
 	displayFitsImage()
@@ -384,8 +393,14 @@ func moveRoiUp() {
 }
 
 func moveRoiDown() {
-	myWin.roiCenterYoffset += 20 // Move the image selection region up
-	myWin.App.Preferences().SetString("ROIcenterY", fmt.Sprintf("%d", myWin.roiCenterYoffset))
+	if myWin.y1+myWin.yJogSize > myWin.imageHeight {
+		dialog.ShowInformation("Information", "ROI too close to image boundary", myWin.parentWindow)
+		return
+	}
+	myWin.y0 += myWin.yJogSize
+	myWin.y1 += myWin.yJogSize
+
+	saveROItoPreferences()
 
 	myWin.roiChanged = true
 	displayFitsImage()
@@ -393,8 +408,15 @@ func moveRoiDown() {
 }
 
 func moveRoiLeft() {
-	myWin.roiCenterXoffset -= 20
-	myWin.App.Preferences().SetString("ROIcenterX", fmt.Sprintf("%d", myWin.roiCenterXoffset))
+	if myWin.x0 < myWin.xJogSize {
+		dialog.ShowInformation("Information", "ROI too close to image boundary", myWin.parentWindow)
+		return
+	}
+
+	myWin.x0 -= myWin.xJogSize
+	myWin.x1 -= myWin.xJogSize
+
+	saveROItoPreferences()
 
 	myWin.roiChanged = true
 	displayFitsImage()
@@ -402,8 +424,15 @@ func moveRoiLeft() {
 }
 
 func moveRoiRight() {
-	myWin.roiCenterXoffset += 20
-	myWin.App.Preferences().SetString("ROIcenterX", fmt.Sprintf("%d", myWin.roiCenterXoffset))
+	if myWin.x1+myWin.xJogSize > myWin.imageWidth {
+		dialog.ShowInformation("Information", "ROI too close to image boundary", myWin.parentWindow)
+		return
+	}
+
+	myWin.x0 += myWin.xJogSize
+	myWin.x1 += myWin.xJogSize
+
+	saveROItoPreferences()
 
 	myWin.roiChanged = true
 	displayFitsImage()
@@ -411,6 +440,8 @@ func moveRoiRight() {
 }
 
 func applyRoi(checked bool) {
+
+	validateROIparameters()
 
 	myWin.roiActive = checked
 	if checked {
@@ -422,6 +453,24 @@ func applyRoi(checked bool) {
 		makeDisplayBuffer(myWin.imageWidth, myWin.imageHeight)
 		restoreRect()
 		displayFitsImage()
+	}
+}
+
+func validateROIparameters() {
+	// Validate ROI size and position - this is needed because the saved values from a previous
+	// run with a different image may have resulted in the saving to preferences of values that
+	// are wrong for the current image.
+	if myWin.roiWidth > myWin.imageWidth {
+		myWin.roiWidth = myWin.imageWidth / 2
+		myWin.x0 = 0
+		myWin.x1 = myWin.roiWidth - 1
+		_ = myWin.widthStr.Set(fmt.Sprintf("%d", myWin.roiWidth))
+	}
+	if myWin.roiHeight > myWin.imageHeight {
+		myWin.roiHeight = myWin.imageHeight / 2
+		myWin.y0 = 0
+		myWin.y1 = myWin.roiHeight - 1
+		_ = myWin.heightStr.Set(fmt.Sprintf("%d", myWin.roiHeight))
 	}
 }
 
@@ -490,9 +539,26 @@ func processRoiEntryInfo(ok bool) {
 		}
 
 		if proposedRoiHeight < 1 {
-			dialog.ShowInformation("Oops", "A integer > 0 is needed for ROI height.", myWin.parentWindow)
+			dialog.ShowInformation("Oops",
+				"A integer > 0 is needed for ROI height.", myWin.parentWindow)
 			_ = myWin.heightStr.Set(fmt.Sprintf("%d", myWin.roiHeight))
 			return
+		}
+
+		if proposedRoiHeight > myWin.imageHeight {
+			dialog.ShowInformation("Oops",
+				fmt.Sprintf("ROI height cannot exceed %d", myWin.imageHeight),
+				myWin.parentWindow)
+			_ = myWin.heightStr.Set(fmt.Sprintf("%d", myWin.imageHeight))
+			proposedRoiHeight = myWin.imageHeight
+		}
+
+		if proposedRoiWidth > myWin.imageWidth {
+			dialog.ShowInformation("Oops",
+				fmt.Sprintf("ROI width cannot exceed %d", myWin.imageWidth),
+				myWin.parentWindow)
+			_ = myWin.widthStr.Set(fmt.Sprintf("%d", myWin.imageWidth))
+			proposedRoiWidth = myWin.imageWidth
 		}
 
 		myWin.App.Preferences().SetString("ROIwidth", widthStr)
@@ -500,6 +566,7 @@ func processRoiEntryInfo(ok bool) {
 
 		myWin.roiHeight = proposedRoiHeight
 		myWin.roiWidth = proposedRoiWidth
+		moveRoiCenter()
 
 		// This causes the ROI change to be applied to the current image
 		myWin.roiChanged = true
@@ -1084,24 +1151,24 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 			_ = myWin.heightStr.Set(strconv.Itoa(height))
 		}
 
-		centerX := width / 2
-		centerY := height / 2
+		//centerX := width / 2
+		//centerY := height / 2
 		//fmt.Printf("width: %d  height: %d  centerX: %d  centerY: %d\n", width, height, centerX, centerY)
-		x0 := centerX - myWin.roiWidth/2 + myWin.roiCenterXoffset
-		if x0 < 0 {
-			x0 = 0
-		}
-		y0 := centerY - myWin.roiHeight/2 + myWin.roiCenterYoffset
-		if y0 < 0 {
-			y0 = 0
-		}
-		x1 := x0 + myWin.roiWidth
-		y1 := y0 + myWin.roiHeight
-
-		myWin.x0 = x0
-		myWin.y0 = y0
-		myWin.x1 = x1
-		myWin.y1 = y1
+		//x0 := centerX - myWin.roiWidth/2 + myWin.roiCenterXoffset
+		//if x0 < 0 {
+		//	x0 = 0
+		//}
+		//y0 := centerY - myWin.roiHeight/2 + myWin.roiCenterYoffset
+		//if y0 < 0 {
+		//	y0 = 0
+		//}
+		//x1 := x0 + myWin.roiWidth
+		//y1 := y0 + myWin.roiHeight
+		//
+		//myWin.x0 = x0
+		//myWin.y0 = y0
+		//myWin.x1 = x1
+		//myWin.y1 = y1
 
 		//fmt.Println(x0, y0, x1, y1, image.Rect(x0, y0, x1, y1))
 
@@ -1112,10 +1179,10 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 			//roi := goImage.(*image.Gray16).SubImage(image.Rect(x0, y0, x1, y1))
 			roi := goImage.(*image.Gray16)
 
-			pixOffset := pixOffset(x0, y0, orgRect, roi.Stride, 2)
+			pixOffset := pixOffset(myWin.x0, myWin.y0, orgRect, roi.Stride, 2)
 			fmt.Println("pixOffset:", pixOffset)
 			roi.Pix = orgPix[pixOffset:]
-			roi.Rect = image.Rect(x0, y0, x1, y1)
+			roi.Rect = image.Rect(myWin.x0, myWin.y0, myWin.x1, myWin.y1)
 
 			fitsImage = canvas.NewImageFromImage(roi) // This is a Fyne image
 			myWin.workingBuffer = make([]byte, len(fitsImage.Image.(*image.Gray16).Pix))
@@ -1123,28 +1190,20 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 		}
 
 		if kind == "Gray" {
-			roi := goImage.(*image.Gray).SubImage(image.Rect(x0, y0, x1, y1))
+			roi := goImage.(*image.Gray).SubImage(image.Rect(myWin.x0, myWin.y0, myWin.x1, myWin.y1))
 			fitsImage = canvas.NewImageFromImage(roi) // This is a Fyne image
 			myWin.workingBuffer = make([]byte, len(fitsImage.Image.(*image.Gray).Pix))
 			copy(myWin.workingBuffer, fitsImage.Image.(*image.Gray).Pix)
 		}
 
-		//judy := image.Rect(x0, y0, x1, y1)
-		//bob := image.Rect(x0, y0, x1, y1)
-		//z := bob.Intersect(judy)
-		//if z.Empty() {
-		//	// A programming error - specified ROI doesn't overlap image
-		//}
-		//fmt.Println("overlap?", z)
-
 		if kind == "Gray64" {
 			roi := goImage.(*fltimg.Gray64)
 			orgRect := roi.Rect
 			orgPix := roi.Pix
-			pixOffset := pixOffset(x0, y0, orgRect, roi.Stride, 8)
+			pixOffset := pixOffset(myWin.x0, myWin.y0, orgRect, roi.Stride, 8)
 			fmt.Println("pixOffset:", pixOffset)
 			roi.Pix = orgPix[pixOffset:]
-			roi.Rect = image.Rect(x0, y0, x1, y1)
+			roi.Rect = image.Rect(myWin.x0, myWin.y0, myWin.x1, myWin.y1)
 
 			fitsImage = canvas.NewImageFromImage(roi) // This is a Fyne image
 			myWin.workingBuffer = make([]byte, len(roi.Pix))
@@ -1155,10 +1214,10 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 			roi := goImage.(*fltimg.Gray32)
 			orgRect := roi.Rect
 			orgPix := roi.Pix
-			pixOffset := pixOffset(x0, y0, orgRect, roi.Stride, 4)
+			pixOffset := pixOffset(myWin.x0, myWin.y0, orgRect, roi.Stride, 4)
 			fmt.Println("pixOffset:", pixOffset)
 			roi.Pix = orgPix[pixOffset:]
-			roi.Rect = image.Rect(x0, y0, x1, y1)
+			roi.Rect = image.Rect(myWin.x0, myWin.y0, myWin.x1, myWin.y1)
 
 			fitsImage = canvas.NewImageFromImage(roi) // This is a Fyne image
 			myWin.workingBuffer = make([]byte, len(roi.Pix))
