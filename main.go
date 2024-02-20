@@ -44,6 +44,8 @@ type Config struct {
 	y0                   int
 	x1                   int
 	y1                   int
+	xJogSize             int
+	yJogSize             int
 	upButton             *widget.Button
 	downButton           *widget.Button
 	leftButton           *widget.Button
@@ -81,7 +83,7 @@ type Config struct {
 	loopEndIndex         int
 }
 
-const version = " 1.2.4"
+const version = " 1.2.5"
 
 //go:embed help.txt
 var helpText string
@@ -278,9 +280,21 @@ func showROI() {
 	}
 
 	x0 := myWin.roiCenterXoffset + myWin.imageWidth/2 - myWin.roiWidth/2
+	if x0 < 0 {
+		x0 = 0
+	}
 	y0 := myWin.roiCenterYoffset + myWin.imageHeight/2 - myWin.roiHeight/2
+	if y0 < 0 {
+		y0 = 0
+	}
 	x1 := x0 + myWin.roiWidth
+	if x1 > myWin.imageWidth {
+		x1 = myWin.imageWidth
+	}
 	y1 := y0 + myWin.roiHeight
+	if y1 > myWin.imageHeight {
+		y1 = myWin.imageHeight
+	}
 
 	//fmt.Printf("x0: %d  y0: %d   x1: %d  y1: %d\n", x0, y0, x1, y1)
 
@@ -313,6 +327,37 @@ func showROI() {
 			myWin.fitsImages[0].Image.(*image.Gray).Set(x1, i, color.White)
 		}
 	}
+
+	if myWin.imageKind == "Gray32" {
+		for i := x0; i < x1; i++ {
+			myWin.fitsImages[0].Image.(*fltimg.Gray32).Set(i, y0, color.White)
+		}
+		for i := x0; i < x1+1; i++ {
+			myWin.fitsImages[0].Image.(*fltimg.Gray32).Set(i, y1, color.White)
+		}
+		for i := y0; i < y1; i++ {
+			myWin.fitsImages[0].Image.(*fltimg.Gray32).Set(x0, i, color.White)
+		}
+		for i := y0; i < y1; i++ {
+			myWin.fitsImages[0].Image.(*fltimg.Gray32).Set(x1, i, color.White)
+		}
+	}
+
+	if myWin.imageKind == "Gray64" {
+		for i := x0; i < x1; i++ {
+			myWin.fitsImages[0].Image.(*fltimg.Gray64).Set(i, y0, color.White)
+		}
+		for i := x0; i < x1+1; i++ {
+			myWin.fitsImages[0].Image.(*fltimg.Gray64).Set(i, y1, color.White)
+		}
+		for i := y0; i < y1; i++ {
+			myWin.fitsImages[0].Image.(*fltimg.Gray64).Set(x0, i, color.White)
+		}
+		for i := y0; i < y1; i++ {
+			myWin.fitsImages[0].Image.(*fltimg.Gray64).Set(x1, i, color.White)
+		}
+	}
+
 	myWin.centerContent.Refresh()
 }
 
@@ -329,6 +374,7 @@ func moveRoiCenter() {
 }
 
 func moveRoiUp() {
+
 	myWin.roiCenterYoffset -= 20 // Move the image selection region down
 	myWin.App.Preferences().SetString("ROIcenterY", fmt.Sprintf("%d", myWin.roiCenterYoffset))
 
@@ -767,8 +813,9 @@ func displayFitsImage() fyne.CanvasObject {
 
 	if myWin.whiteSlider != nil {
 		if myWin.imageKind == "Gray32" {
-			imageToUse.Image.(*fltimg.Gray32).Max = float32(myWin.whiteSlider.Value)
-			imageToUse.Image.(*fltimg.Gray32).Min = float32(myWin.blackSlider.Value)
+			copy(myWin.displayBuffer, imageToUse.Image.(*fltimg.Gray32).Pix)
+		} else if myWin.imageKind == "Gray64" {
+			copy(myWin.displayBuffer, imageToUse.Image.(*fltimg.Gray64).Pix)
 		} else if myWin.imageKind == "Gray" {
 			applyContrastControls(imageToUse.Image.(*image.Gray).Pix, myWin.displayBuffer, "Gray")
 		} else if myWin.imageKind == "Gray16" {
@@ -792,6 +839,26 @@ func displayFitsImage() fyne.CanvasObject {
 	if myWin.imageKind == "Gray" {
 		//printImageStats("@point 2")
 		myWin.fitsImages[0].Image.(*image.Gray).Pix = myWin.displayBuffer
+		if !myWin.roiActive {
+			restoreRect()
+		} else {
+			setROIrect()
+		}
+	}
+	if myWin.imageKind == "Gray32" {
+		myWin.fitsImages[0].Image.(*fltimg.Gray32).Pix = myWin.displayBuffer
+		myWin.fitsImages[0].Image.(*fltimg.Gray32).Min = float32(myWin.blackSlider.Value)
+		myWin.fitsImages[0].Image.(*fltimg.Gray32).Max = float32(myWin.whiteSlider.Value)
+		if !myWin.roiActive {
+			restoreRect()
+		} else {
+			setROIrect()
+		}
+	}
+	if myWin.imageKind == "Gray64" {
+		myWin.fitsImages[0].Image.(*fltimg.Gray64).Pix = myWin.displayBuffer
+		myWin.fitsImages[0].Image.(*fltimg.Gray64).Min = myWin.blackSlider.Value
+		myWin.fitsImages[0].Image.(*fltimg.Gray64).Max = myWin.whiteSlider.Value
 		if !myWin.roiActive {
 			restoreRect()
 		} else {
@@ -827,6 +894,26 @@ func restoreRect() {
 			Y: 0,
 		}
 	}
+	if myWin.imageKind == "Gray32" {
+		myWin.fitsImages[0].Image.(*fltimg.Gray32).Rect.Max = image.Point{
+			X: myWin.imageWidth,
+			Y: myWin.imageHeight,
+		}
+		myWin.fitsImages[0].Image.(*fltimg.Gray32).Rect.Min = image.Point{
+			X: 0,
+			Y: 0,
+		}
+	}
+	if myWin.imageKind == "Gray64" {
+		myWin.fitsImages[0].Image.(*fltimg.Gray64).Rect.Max = image.Point{
+			X: myWin.imageWidth,
+			Y: myWin.imageHeight,
+		}
+		myWin.fitsImages[0].Image.(*fltimg.Gray64).Rect.Min = image.Point{
+			X: 0,
+			Y: 0,
+		}
+	}
 }
 
 func setROIrect() {
@@ -846,6 +933,26 @@ func setROIrect() {
 			Y: myWin.x1,
 		}
 		myWin.fitsImages[0].Image.(*image.Gray).Rect.Min = image.Point{
+			X: myWin.x0,
+			Y: myWin.y0,
+		}
+	}
+	if myWin.imageKind == "Gray32" {
+		myWin.fitsImages[0].Image.(*fltimg.Gray32).Rect.Max = image.Point{
+			X: myWin.x1,
+			Y: myWin.y1,
+		}
+		myWin.fitsImages[0].Image.(*fltimg.Gray32).Rect.Min = image.Point{
+			X: myWin.x0,
+			Y: myWin.y0,
+		}
+	}
+	if myWin.imageKind == "Gray64" {
+		myWin.fitsImages[0].Image.(*fltimg.Gray64).Rect.Max = image.Point{
+			X: myWin.x1,
+			Y: myWin.y1,
+		}
+		myWin.fitsImages[0].Image.(*fltimg.Gray64).Rect.Min = image.Point{
 			X: myWin.x0,
 			Y: myWin.y0,
 		}
@@ -916,6 +1023,8 @@ func initializeImages() {
 		myWin.bytesPerPixel = 2
 	case "Gray32":
 		myWin.bytesPerPixel = 4
+	case "Gray64":
+		myWin.bytesPerPixel = 8
 	default:
 		msg := fmt.Sprintf("%s is not an image kind that is supported.", kind)
 		dialog.ShowInformation("Oops", msg, myWin.parentWindow)
@@ -925,6 +1034,17 @@ func initializeImages() {
 	makeDisplayBuffer(myWin.imageWidth, myWin.imageHeight)
 
 	myWin.fileSlider.SetValue(0)
+}
+
+// PixOffset returns the index of the first element of Pix that corresponds to
+// the pixel at (x, y).
+//
+//	func (p *fltimg.Gray32) PixOffset(x, y int) int {
+//		return (y-p.Rect.Min.Y)*p.Stride + (x-p.Rect.Min.X)*2
+//	}
+func pixOffset(x int, y int, r image.Rectangle, stride int, pixelByteCount int) int {
+	ans := (y-r.Min.Y)*stride + (x-r.Min.X)*pixelByteCount
+	return ans
 }
 
 func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string) {
@@ -968,7 +1088,13 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 		centerY := height / 2
 		//fmt.Printf("width: %d  height: %d  centerX: %d  centerY: %d\n", width, height, centerX, centerY)
 		x0 := centerX - myWin.roiWidth/2 + myWin.roiCenterXoffset
+		if x0 < 0 {
+			x0 = 0
+		}
 		y0 := centerY - myWin.roiHeight/2 + myWin.roiCenterYoffset
+		if y0 < 0 {
+			y0 = 0
+		}
 		x1 := x0 + myWin.roiWidth
 		y1 := y0 + myWin.roiHeight
 
@@ -980,7 +1106,17 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 		//fmt.Println(x0, y0, x1, y1, image.Rect(x0, y0, x1, y1))
 
 		if kind == "Gray16" {
-			roi := goImage.(*image.Gray16).SubImage(image.Rect(x0, y0, x1, y1))
+			orgRect := goImage.(*image.Gray16).Rect
+			orgPix := goImage.(*image.Gray16).Pix
+
+			//roi := goImage.(*image.Gray16).SubImage(image.Rect(x0, y0, x1, y1))
+			roi := goImage.(*image.Gray16)
+
+			pixOffset := pixOffset(x0, y0, orgRect, roi.Stride, 2)
+			fmt.Println("pixOffset:", pixOffset)
+			roi.Pix = orgPix[pixOffset:]
+			roi.Rect = image.Rect(x0, y0, x1, y1)
+
 			fitsImage = canvas.NewImageFromImage(roi) // This is a Fyne image
 			myWin.workingBuffer = make([]byte, len(fitsImage.Image.(*image.Gray16).Pix))
 			copy(myWin.workingBuffer, fitsImage.Image.(*image.Gray16).Pix)
@@ -993,16 +1129,46 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 			copy(myWin.workingBuffer, fitsImage.Image.(*image.Gray).Pix)
 		}
 
+		//judy := image.Rect(x0, y0, x1, y1)
+		//bob := image.Rect(x0, y0, x1, y1)
+		//z := bob.Intersect(judy)
+		//if z.Empty() {
+		//	// A programming error - specified ROI doesn't overlap image
+		//}
+		//fmt.Println("overlap?", z)
+
+		if kind == "Gray64" {
+			roi := goImage.(*fltimg.Gray64)
+			orgRect := roi.Rect
+			orgPix := roi.Pix
+			pixOffset := pixOffset(x0, y0, orgRect, roi.Stride, 8)
+			fmt.Println("pixOffset:", pixOffset)
+			roi.Pix = orgPix[pixOffset:]
+			roi.Rect = image.Rect(x0, y0, x1, y1)
+
+			fitsImage = canvas.NewImageFromImage(roi) // This is a Fyne image
+			myWin.workingBuffer = make([]byte, len(roi.Pix))
+			copy(myWin.workingBuffer, roi.Pix)
+		}
+
 		if kind == "Gray32" {
-			msg := "ROI selection not implemented for\nfloating point images."
-			dialog.ShowInformation("Sorry", msg, myWin.parentWindow)
-			myWin.roiCheckbox.SetChecked(false)
-		} else {
-			if myWin.roiChanged {
-				myWin.roiChanged = false
-				myWin.fitsImages[0] = fitsImage
-				myWin.centerContent.Objects[0] = fitsImage
-			}
+			roi := goImage.(*fltimg.Gray32)
+			orgRect := roi.Rect
+			orgPix := roi.Pix
+			pixOffset := pixOffset(x0, y0, orgRect, roi.Stride, 4)
+			fmt.Println("pixOffset:", pixOffset)
+			roi.Pix = orgPix[pixOffset:]
+			roi.Rect = image.Rect(x0, y0, x1, y1)
+
+			fitsImage = canvas.NewImageFromImage(roi) // This is a Fyne image
+			myWin.workingBuffer = make([]byte, len(roi.Pix))
+			copy(myWin.workingBuffer, roi.Pix)
+		}
+
+		if myWin.roiChanged {
+			myWin.roiChanged = false
+			myWin.fitsImages[0] = fitsImage
+			myWin.centerContent.Objects[0] = fitsImage
 		}
 	}
 
@@ -1012,6 +1178,12 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 		}
 		if kind == "Gray16" {
 			copy(myWin.workingBuffer, fitsImage.Image.(*image.Gray16).Pix)
+		}
+		if kind == "Gray32" {
+			copy(myWin.workingBuffer, fitsImage.Image.(*fltimg.Gray32).Pix)
+		}
+		if kind == "Gray64" {
+			copy(myWin.workingBuffer, fitsImage.Image.(*fltimg.Gray64).Pix)
 		}
 	}
 
@@ -1111,9 +1283,14 @@ func applyContrastControls(original, stretched []byte, kind string) {
 		myWin.autoContrastNeeded = false
 		if kind == "Gray16" {
 			std, err = getStd(original, 2, 255)
-		} else {
+		}
+		if kind == "Gray" {
 			std, err = getStd(original, 1, 255)
 		}
+		//if kind == "Gray32" {
+		//	std, err = getStd(original, 4, 255)
+		//	fmt.Printf("std: %0.1f\n", std)
+		//}
 		if err != nil {
 			fmt.Println(fmt.Errorf("getstd(): %w", err))
 			return
