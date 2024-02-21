@@ -53,6 +53,9 @@ type Config struct {
 	roiCheckbox          *widget.Check
 	setRoiButton         *widget.Button
 	parentWindow         fyne.Window
+	folderSelectWin      fyne.Window
+	selectionMade        bool
+	folderSelected       string
 	imageWidth           int
 	imageHeight          int
 	App                  fyne.App
@@ -62,6 +65,7 @@ type Config struct {
 	fileSlider           *widget.Slider
 	centerContent        *fyne.Container
 	fitsFilePaths        []string
+	fitsFolderHistory    []string
 	numFiles             int
 	waitingForFileRead   bool
 	fitsImages           []*canvas.Image
@@ -99,6 +103,8 @@ func main() {
 
 	myWin.widthStr = binding.NewString()
 	myWin.heightStr = binding.NewString()
+
+	myWin.fitsFolderHistory = myWin.App.Preferences().StringListWithFallback("folderHistory", []string{})
 
 	widthStr := myWin.App.Preferences().StringWithFallback("ROIwidth", "100")
 	heightStr := myWin.App.Preferences().StringWithFallback("ROIheight", "100")
@@ -270,6 +276,7 @@ func initializeConfig(running bool) {
 	myWin.yJogSize = 20
 	myWin.fitsFilePaths = nil
 	myWin.waitingForFileRead = false
+	myWin.selectionMade = false
 	myWin.numFiles = 0
 	myWin.fileIndex = 0
 	myWin.autoPlayEnabled = false
@@ -327,8 +334,7 @@ func showROI() {
 			myWin.fitsImages[0].Image.(*fltimg.Gray32).Set(i, y0, color.White)
 		}
 		for i := x0; i < x1+1; i++ {
-			// TODO Put this back to color.White
-			myWin.fitsImages[0].Image.(*fltimg.Gray32).Set(i, y1, color.Black)
+			myWin.fitsImages[0].Image.(*fltimg.Gray32).Set(i, y1, color.White)
 		}
 		for i := y0; i < y1; i++ {
 			myWin.fitsImages[0].Image.(*fltimg.Gray32).Set(x0, i, color.White)
@@ -464,13 +470,20 @@ func validateROIparameters() {
 		myWin.roiWidth = myWin.imageWidth / 2
 		myWin.x0 = 0
 		myWin.x1 = myWin.roiWidth - 1
-		_ = myWin.widthStr.Set(fmt.Sprintf("%d", myWin.roiWidth))
+		widthStr := fmt.Sprintf("%d", myWin.roiWidth)
+		_ = myWin.widthStr.Set(widthStr)
+		myWin.App.Preferences().SetString("ROIwidth", widthStr)
+		saveROItoPreferences()
 	}
 	if myWin.roiHeight > myWin.imageHeight {
 		myWin.roiHeight = myWin.imageHeight / 2
 		myWin.y0 = 0
 		myWin.y1 = myWin.roiHeight - 1
 		_ = myWin.heightStr.Set(fmt.Sprintf("%d", myWin.roiHeight))
+		heightStr := fmt.Sprintf("%d", myWin.roiHeight)
+		_ = myWin.heightStr.Set(heightStr)
+		myWin.App.Preferences().SetString("ROIheight", heightStr)
+		saveROItoPreferences()
 	}
 }
 
@@ -494,6 +507,29 @@ func disableRoiControls() {
 	myWin.rightButton.Disable()
 	myWin.centerButton.Disable()
 	myWin.drawROIbutton.Disable()
+}
+
+func folderHistorySelect() {
+	item1 := widget.NewSelect(myWin.fitsFolderHistory, func(path string) { processFolderSelection(path) })
+	item1.PlaceHolder = "Click to get history of folders opened"
+	folderSelectWin := myWin.App.NewWindow("FITS folder selection history")
+	myWin.folderSelectWin = folderSelectWin
+	folderSelectWin.Resize(fyne.Size{Height: 450, Width: 700})
+	//scrollableText := container.NewVScroll(widget.NewRichTextWithText(helpText))
+	//folderSelectWin.SetContent(item1, layout.NewSpacer())
+	ctr := container.NewVBox()
+	ctr.Add(item1)
+	ctr.Add(layout.NewSpacer())
+	folderSelectWin.SetContent(ctr)
+	folderSelectWin.CenterOnScreen()
+	folderSelectWin.SetCloseIntercept(func() { processFolderSelection("") })
+	folderSelectWin.Show()
+}
+
+func processFolderSelection(path string) {
+	fmt.Println(path)
+	myWin.folderSelected = path
+	myWin.selectionMade = true
 }
 
 func roiEntry() {
@@ -787,6 +823,34 @@ func processFileSliderMove(position float64) {
 }
 
 func chooseFitsFolder() {
+
+	var lastFitsFolderStr string
+
+	folderHistorySelect()
+	for {
+		time.Sleep(1 * time.Millisecond)
+		if myWin.selectionMade {
+			myWin.selectionMade = false
+			break
+		}
+	}
+	myWin.folderSelectWin.Close()
+
+	// If the user just closed the folder selection window, "" is returned.
+	if myWin.folderSelected == "" {
+		return
+	}
+
+	if myWin.folderSelected == "Clear" {
+		myWin.fitsFolderHistory = []string{"Browse", "Clear"}
+		myWin.App.Preferences().SetStringList("folderHistory", myWin.fitsFolderHistory)
+	} else if myWin.folderSelected != "Browse" {
+		processFitsFolderPath(myWin.folderSelected)
+		return
+	}
+
+	lastFitsFolderStr = myWin.App.Preferences().StringWithFallback("lastFitsFolder", "")
+
 	showFolder := dialog.NewFolderOpen(
 		func(path fyne.ListableURI, err error) { processFitsFolderSelection(path, err) },
 		myWin.parentWindow,
@@ -795,7 +859,6 @@ func chooseFitsFolder() {
 		Width:  800,
 		Height: 600,
 	})
-	lastFitsFolderStr := myWin.App.Preferences().StringWithFallback("lastFitsFolder", "")
 
 	if lastFitsFolderStr != "" {
 		uriOfLastFitsFolder := storage.NewFileURI(lastFitsFolderStr)
@@ -812,6 +875,19 @@ func chooseFitsFolder() {
 	showFolder.Show()
 }
 
+func isDirectory(path string) bool {
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return fileInfo.IsDir()
+}
+
+func pathExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 func processFitsFolderSelection(path fyne.ListableURI, err error) {
 	if err != nil {
 		fmt.Println(fmt.Errorf("%w\n", err))
@@ -822,6 +898,7 @@ func processFitsFolderSelection(path fyne.ListableURI, err error) {
 		initializeConfig(true)
 
 		myWin.App.Preferences().SetString("lastFitsFolder", path.Path())
+
 		myWin.fitsFilePaths = getFitsFilenames(path.Path())
 		if len(myWin.fitsFilePaths) == 0 {
 			dialog.ShowInformation("Oops",
@@ -830,6 +907,38 @@ func processFitsFolderSelection(path fyne.ListableURI, err error) {
 			)
 			return
 		}
+
+		folderToLookFor := path.Path()
+		dupFolder := false
+		for _, folderName := range myWin.fitsFolderHistory {
+			if folderName == folderToLookFor {
+				dupFolder = true
+				break
+			}
+		}
+		if !dupFolder {
+			myWin.fitsFolderHistory = append(myWin.fitsFolderHistory, folderToLookFor)
+		}
+
+		// TODO Add a 'tidy' func that removes invalid entries: non-exist or non-directory
+		tidyFolderHistory := []string{"Browse", "Clear"}
+		for _, folderToCheck := range myWin.fitsFolderHistory {
+			if folderToCheck == "Browse" || folderToCheck == "Clear" {
+				continue
+			}
+			if pathExists(folderToCheck) {
+				if isDirectory(folderToCheck) {
+					tidyFolderHistory = append(tidyFolderHistory, folderToCheck)
+				} else {
+					continue
+				}
+			} else {
+				continue
+			}
+		}
+		myWin.fitsFolderHistory = tidyFolderHistory
+		myWin.App.Preferences().SetStringList("folderHistory", myWin.fitsFolderHistory)
+
 		myWin.fileIndex = 0
 		myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
 		//fmt.Printf("%d fits files were found.\n", len(myWin.fitsFilePaths))
@@ -841,6 +950,34 @@ func processFitsFolderSelection(path fyne.ListableURI, err error) {
 		initializeImages()
 		myWin.fileSlider.SetValue(0)
 	}
+	if len(myWin.fitsFilePaths) > 0 {
+		displayFitsImage()
+	}
+}
+
+func processFitsFolderPath(path string) {
+	//fmt.Printf("folder selected: %s\n", path)
+	initializeConfig(true)
+
+	myWin.fitsFilePaths = getFitsFilenames(path)
+	if len(myWin.fitsFilePaths) == 0 {
+		dialog.ShowInformation("Oops",
+			"No .fits files were found there!",
+			myWin.parentWindow,
+		)
+		return
+	}
+	myWin.fileIndex = 0
+	myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
+	//fmt.Printf("%d fits files were found.\n", len(myWin.fitsFilePaths))
+	myWin.fitsImages = []*canvas.Image{}
+	myWin.timestamps = []string{}
+	myWin.metaData = [][]string{}
+	myWin.fileIndex = 0
+	enableRoiControls()
+	initializeImages()
+	myWin.fileSlider.SetValue(0)
+
 	if len(myWin.fitsFilePaths) > 0 {
 		displayFitsImage()
 	}
@@ -1180,7 +1317,7 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 			roi := goImage.(*image.Gray16)
 
 			pixOffset := pixOffset(myWin.x0, myWin.y0, orgRect, roi.Stride, 2)
-			fmt.Println("pixOffset:", pixOffset)
+			//fmt.Println("pixOffset:", pixOffset)
 			roi.Pix = orgPix[pixOffset:]
 			roi.Rect = image.Rect(myWin.x0, myWin.y0, myWin.x1, myWin.y1)
 
@@ -1200,9 +1337,9 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 			roi := goImage.(*fltimg.Gray64)
 			orgRect := roi.Rect
 			orgPix := roi.Pix
-			pixOffset := pixOffset(myWin.x0, myWin.y0, orgRect, roi.Stride, 8)
-			fmt.Println("pixOffset:", pixOffset)
-			roi.Pix = orgPix[pixOffset:]
+			pixoffset := pixOffset(myWin.x0, myWin.y0, orgRect, roi.Stride, 8)
+			//fmt.Println("pixOffset:", pixOffset)
+			roi.Pix = orgPix[pixoffset:]
 			roi.Rect = image.Rect(myWin.x0, myWin.y0, myWin.x1, myWin.y1)
 
 			fitsImage = canvas.NewImageFromImage(roi) // This is a Fyne image
@@ -1214,9 +1351,9 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 			roi := goImage.(*fltimg.Gray32)
 			orgRect := roi.Rect
 			orgPix := roi.Pix
-			pixOffset := pixOffset(myWin.x0, myWin.y0, orgRect, roi.Stride, 4)
-			fmt.Println("pixOffset:", pixOffset)
-			roi.Pix = orgPix[pixOffset:]
+			pixoffset := pixOffset(myWin.x0, myWin.y0, orgRect, roi.Stride, 4)
+			//fmt.Println("pixOffset:", pixOffset)
+			roi.Pix = orgPix[pixoffset:]
 			roi.Rect = image.Rect(myWin.x0, myWin.y0, myWin.x1, myWin.y1)
 
 			fitsImage = canvas.NewImageFromImage(roi) // This is a Fyne image
