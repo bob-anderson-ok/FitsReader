@@ -2,7 +2,6 @@ package main
 
 import (
 	_ "embed"
-	"encoding/binary"
 	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -59,6 +58,7 @@ type Config struct {
 	setRoiButton         *widget.Button
 	parentWindow         fyne.Window
 	folderSelectWin      fyne.Window
+	folderSelect         *widget.Select
 	selectionMade        bool
 	folderSelected       string
 	imageWidth           int
@@ -90,7 +90,7 @@ type Config struct {
 	loopEndIndex         int
 }
 
-const version = " 1.3.0"
+const version = " 1.3.2"
 
 const browseText = "Open browser to select new folder"
 const clearText = "Clear all history (if you're sure!)"
@@ -112,7 +112,14 @@ func main() {
 	myWin.widthStr = binding.NewString()
 	myWin.heightStr = binding.NewString()
 
-	myWin.fitsFolderHistory = myWin.App.Preferences().StringListWithFallback("folderHistory", []string{})
+	myWin.fitsFolderHistory = myWin.App.Preferences().StringListWithFallback("folderHistory",
+		[]string{"", browseText, "", clearText, ""})
+
+	if len(os.Args) > 1 {
+		if os.Args[1] == "2" || os.Args[1] == "3" {
+			myWin.fitsFolderHistory = []string{"", browseText, "", clearText, ""}
+		}
+	}
 
 	widthStr := myWin.App.Preferences().StringWithFallback("ROIwidth", "100")
 	heightStr := myWin.App.Preferences().StringWithFallback("ROIheight", "100")
@@ -179,7 +186,9 @@ func main() {
 
 	// This lets the user pick the white theme by putting anything at all on the command line.
 	if len(os.Args) > 1 {
-		myApp.Settings().SetTheme(&forcedVariant{Theme: theme.DefaultTheme(), variant: theme.VariantLight})
+		if os.Args[1] == "1" || os.Args[1] == "3" {
+			myApp.Settings().SetTheme(&forcedVariant{Theme: theme.DefaultTheme(), variant: theme.VariantLight})
+		}
 	}
 
 	leftItem.Add(layout.NewSpacer())
@@ -512,8 +521,8 @@ func validateROIparameters() {
 	if myWin.roiWidth > myWin.imageWidth {
 		changeMade = true
 		myWin.roiWidth = myWin.imageWidth / 2
-		myWin.x0 = 0
-		myWin.x1 = myWin.roiWidth - 1
+		myWin.x0 = myWin.imageWidth/2 - myWin.roiWidth/2
+		myWin.x1 = myWin.x0 + myWin.roiWidth
 		widthStr := fmt.Sprintf("%d", myWin.roiWidth)
 		_ = myWin.widthStr.Set(widthStr)
 		myWin.App.Preferences().SetString("ROIwidth", widthStr)
@@ -522,25 +531,25 @@ func validateROIparameters() {
 	if myWin.roiHeight > myWin.imageHeight {
 		changeMade = true
 		myWin.roiHeight = myWin.imageHeight / 2
-		myWin.y0 = 0
-		myWin.y1 = myWin.roiHeight - 1
+		myWin.y0 = myWin.imageHeight/2 - myWin.roiHeight/2
+		myWin.y1 = myWin.y0 + myWin.roiHeight
 		_ = myWin.heightStr.Set(fmt.Sprintf("%d", myWin.roiHeight))
 		heightStr := fmt.Sprintf("%d", myWin.roiHeight)
 		_ = myWin.heightStr.Set(heightStr)
 		myWin.App.Preferences().SetString("ROIheight", heightStr)
 	}
 
-	//if myWin.x1 >= myWin.roiWidth {
-	//	changeMade = true
-	//	myWin.x0 = myWin.imageWidth/2 - myWin.roiWidth/2
-	//	myWin.x1 = myWin.roiWidth - 1
-	//}
-	//
-	//if myWin.y1 >= myWin.roiHeight {
-	//	changeMade = true
-	//	myWin.y0 = myWin.imageHeight/2 - myWin.roiHeight/2
-	//	myWin.y1 = myWin.roiHeight - 1
-	//}
+	if myWin.x1 >= myWin.imageWidth {
+		changeMade = true
+		myWin.x0 = myWin.imageWidth/2 - myWin.roiWidth/2
+		myWin.x1 = myWin.x0 + myWin.roiWidth
+	}
+
+	if myWin.y1 >= myWin.imageHeight {
+		changeMade = true
+		myWin.y0 = myWin.imageHeight/2 - myWin.roiHeight/2
+		myWin.y1 = myWin.y0 + myWin.roiHeight
+	}
 
 	if changeMade {
 		saveROIposToPreferences()
@@ -570,18 +579,36 @@ func disableRoiControls() {
 }
 
 func folderHistorySelect() {
-	item1 := widget.NewSelect(myWin.fitsFolderHistory, func(path string) { processFolderSelection(path) })
-	item1.PlaceHolder = "Click for options and history of folders opened"
+	selector := widget.NewSelect(myWin.fitsFolderHistory, func(path string) { processFolderSelection(path) })
+	myWin.folderSelect = selector // Save for use by openSelections()
+
+	// Configure selector
+	selector.PlaceHolder = "Folder history"
 	folderSelectWin := myWin.App.NewWindow("FITS folder history (and options)")
 	myWin.folderSelectWin = folderSelectWin
 	folderSelectWin.Resize(fyne.Size{Height: 450, Width: 700})
+
 	ctr := container.NewVBox()
-	ctr.Add(item1)
+	ctr.Add(selector)
 	ctr.Add(layout.NewSpacer())
 	folderSelectWin.SetContent(ctr)
 	folderSelectWin.CenterOnScreen()
+
 	folderSelectWin.SetCloseIntercept(func() { processFolderSelection("") })
 	folderSelectWin.Show()
+
+	go openSelections()
+}
+
+func openSelections() {
+	// The following delay is apparently needed to allow the
+	// window with its widgets to be built, particularly the Select widget
+	time.Sleep(100 * time.Millisecond)
+	fakedPoint := fyne.PointEvent{
+		AbsolutePosition: myWin.folderSelect.Position(),
+		Position:         myWin.folderSelect.Position(),
+	}
+	myWin.folderSelect.Tapped(&fakedPoint)
 }
 
 func processFolderSelection(path string) {
@@ -1065,11 +1092,6 @@ func showMetaData() {
 
 func displayFitsImage() fyne.CanvasObject {
 
-	//fmt.Printf("blk min: %0.1f  blk max: %0.1f  wht min: %0.1f  wht max: %0.1f\n",
-	//	myWin.blackSlider.Min, myWin.blackSlider.Max,
-	//	myWin.whiteSlider.Min, myWin.whiteSlider.Max,
-	//)
-
 	myWin.fileLabel.SetText(myWin.fitsFilePaths[myWin.fileIndex])
 
 	// A side effect of this call is that myWin.displayBuffer is filled
@@ -1082,25 +1104,27 @@ func displayFitsImage() fyne.CanvasObject {
 	myWin.timestampLabel.Text = timestamp
 
 	if myWin.whiteSlider != nil {
-		if myWin.imageKind == "Gray32" {
+		switch myWin.imageKind {
+		case "Gray32":
 			copy(myWin.displayBuffer, imageToUse.Image.(*fltimg.Gray32).Pix)
-		} else if myWin.imageKind == "Gray64" {
+		case "Gray64":
 			copy(myWin.displayBuffer, imageToUse.Image.(*fltimg.Gray64).Pix)
-		} else if myWin.imageKind == "Gray" {
+		case "Gray":
 			applyContrastControls(imageToUse.Image.(*image.Gray).Pix, myWin.displayBuffer, "Gray")
-		} else if myWin.imageKind == "Gray16" {
+			myWin.fitsImages[0].Image.(*image.Gray).Pix = myWin.displayBuffer
+		case "Gray16":
 			applyContrastControls(imageToUse.Image.(*image.Gray16).Pix, myWin.displayBuffer, "Gray16")
 			myWin.fitsImages[0].Image.(*image.Gray16).Pix = myWin.displayBuffer
-		} else {
+		default:
 			dialog.ShowInformation("Oops",
 				fmt.Sprintf("The image kind (%s) is unrecognized.", myWin.imageKind),
 				myWin.parentWindow)
-			//fmt.Printf("The image kind (%s) is unrecognized.\n", myWin.imageKind)
 			return nil
 		}
 	}
 
-	if myWin.imageKind == "Gray16" {
+	switch myWin.imageKind {
+	case "Gray16":
 		//printImageStats("@point 1")
 		copy(myWin.fitsImages[0].Image.(*image.Gray16).Pix, myWin.displayBuffer)
 		if !myWin.roiActive {
@@ -1108,8 +1132,7 @@ func displayFitsImage() fyne.CanvasObject {
 		} else {
 			setROIrect()
 		}
-	}
-	if myWin.imageKind == "Gray" {
+	case "Gray":
 		//printImageStats("@point 2")
 		myWin.fitsImages[0].Image.(*image.Gray).Pix = myWin.displayBuffer
 		if !myWin.roiActive {
@@ -1117,8 +1140,7 @@ func displayFitsImage() fyne.CanvasObject {
 		} else {
 			setROIrect()
 		}
-	}
-	if myWin.imageKind == "Gray32" {
+	case "Gray32":
 		myWin.fitsImages[0].Image.(*fltimg.Gray32).Pix = myWin.displayBuffer
 		myWin.fitsImages[0].Image.(*fltimg.Gray32).Min = float32(myWin.blackSlider.Value)
 		myWin.fitsImages[0].Image.(*fltimg.Gray32).Max = float32(myWin.whiteSlider.Value)
@@ -1127,8 +1149,7 @@ func displayFitsImage() fyne.CanvasObject {
 		} else {
 			setROIrect()
 		}
-	}
-	if myWin.imageKind == "Gray64" {
+	case "Gray64":
 		myWin.fitsImages[0].Image.(*fltimg.Gray64).Pix = myWin.displayBuffer
 		myWin.fitsImages[0].Image.(*fltimg.Gray64).Min = myWin.blackSlider.Value
 		myWin.fitsImages[0].Image.(*fltimg.Gray64).Max = myWin.whiteSlider.Value
@@ -1137,7 +1158,13 @@ func displayFitsImage() fyne.CanvasObject {
 		} else {
 			setROIrect()
 		}
+	default:
+		dialog.ShowInformation("Oops",
+			fmt.Sprintf("The image kind (%s) is unrecognized.", myWin.imageKind),
+			myWin.parentWindow)
+		return nil
 	}
+
 	myWin.centerContent.Objects[0] = myWin.fitsImages[0]
 
 	myWin.centerContent.Refresh()
@@ -1147,7 +1174,8 @@ func displayFitsImage() fyne.CanvasObject {
 }
 
 func restoreRect() {
-	if myWin.imageKind == "Gray16" {
+	switch myWin.imageKind {
+	case "Gray16":
 		myWin.fitsImages[0].Image.(*image.Gray16).Rect.Max = image.Point{
 			X: myWin.imageWidth,
 			Y: myWin.imageHeight,
@@ -1156,8 +1184,7 @@ func restoreRect() {
 			X: 0,
 			Y: 0,
 		}
-	}
-	if myWin.imageKind == "Gray" {
+	case "Gray":
 		myWin.fitsImages[0].Image.(*image.Gray).Rect.Max = image.Point{
 			X: myWin.imageWidth,
 			Y: myWin.imageHeight,
@@ -1166,8 +1193,7 @@ func restoreRect() {
 			X: 0,
 			Y: 0,
 		}
-	}
-	if myWin.imageKind == "Gray32" {
+	case "Gray32":
 		myWin.fitsImages[0].Image.(*fltimg.Gray32).Rect.Max = image.Point{
 			X: myWin.imageWidth,
 			Y: myWin.imageHeight,
@@ -1176,8 +1202,7 @@ func restoreRect() {
 			X: 0,
 			Y: 0,
 		}
-	}
-	if myWin.imageKind == "Gray64" {
+	case "Gray64":
 		myWin.fitsImages[0].Image.(*fltimg.Gray64).Rect.Max = image.Point{
 			X: myWin.imageWidth,
 			Y: myWin.imageHeight,
@@ -1186,11 +1211,16 @@ func restoreRect() {
 			X: 0,
 			Y: 0,
 		}
+	default:
+		dialog.ShowInformation("Oops",
+			fmt.Sprintf("The image kind (%s) is unrecognized.", myWin.imageKind),
+			myWin.parentWindow)
 	}
 }
 
 func setROIrect() {
-	if myWin.imageKind == "Gray16" {
+	switch myWin.imageKind {
+	case "Gray16":
 		myWin.fitsImages[0].Image.(*image.Gray16).Rect.Max = image.Point{
 			X: myWin.x1,
 			Y: myWin.y1,
@@ -1199,8 +1229,7 @@ func setROIrect() {
 			X: myWin.x0,
 			Y: myWin.y0,
 		}
-	}
-	if myWin.imageKind == "Gray" {
+	case "Gray":
 		myWin.fitsImages[0].Image.(*image.Gray).Rect.Max = image.Point{
 			X: myWin.x1,
 			Y: myWin.x1,
@@ -1209,8 +1238,7 @@ func setROIrect() {
 			X: myWin.x0,
 			Y: myWin.y0,
 		}
-	}
-	if myWin.imageKind == "Gray32" {
+	case "Gray32":
 		myWin.fitsImages[0].Image.(*fltimg.Gray32).Rect.Max = image.Point{
 			X: myWin.x1,
 			Y: myWin.y1,
@@ -1219,8 +1247,7 @@ func setROIrect() {
 			X: myWin.x0,
 			Y: myWin.y0,
 		}
-	}
-	if myWin.imageKind == "Gray64" {
+	case "Gray64":
 		myWin.fitsImages[0].Image.(*fltimg.Gray64).Rect.Max = image.Point{
 			X: myWin.x1,
 			Y: myWin.y1,
@@ -1229,6 +1256,10 @@ func setROIrect() {
 			X: myWin.x0,
 			Y: myWin.y0,
 		}
+	default:
+		dialog.ShowInformation("Oops",
+			fmt.Sprintf("The image kind (%s) is unrecognized.", myWin.imageKind),
+			myWin.parentWindow)
 	}
 }
 
@@ -1316,24 +1347,24 @@ func pixOffset(x int, y int, r image.Rectangle, stride int, pixelByteCount int) 
 	return ans
 }
 
-func conv8ByteSliceToFloat64(p []byte, offset int) (float64, uint64) {
-	valueUint64 := binary.LittleEndian.Uint64(p[offset : offset+8])
-	return float64(valueUint64), valueUint64
-}
+//func conv8ByteSliceToFloat64(p []byte, offset int) (float64, uint64) {
+//	valueUint64 := binary.LittleEndian.Uint64(p[offset : offset+8])
+//	return float64(valueUint64), valueUint64
+//}
 
-func conv4ByteSliceToFloat64(p []byte, offset int) (float64, uint32) {
-	valueUint32 := binary.LittleEndian.Uint32(p[offset : offset+4])
-	return float64(valueUint32), valueUint32
-}
+//func conv4ByteSliceToFloat64(p []byte, offset int) (float64, uint32) {
+//	valueUint32 := binary.LittleEndian.Uint32(p[offset : offset+4])
+//	return float64(valueUint32), valueUint32
+//}
 
-func conv2ByteSliceToFloat64(p []byte, offset int) (float64, uint16) {
-	valueUint16 := binary.LittleEndian.Uint16(p[offset : offset+2])
-	return float64(valueUint16), valueUint16
-}
+//func conv2ByteSliceToFloat64(p []byte, offset int) (float64, uint16) {
+//	valueUint16 := binary.LittleEndian.Uint16(p[offset : offset+2])
+//	return float64(valueUint16), valueUint16
+//}
 
-func conv1ByteSliceToFloat64(p []byte, offset int) (float64, uint8) {
-	return float64(p[offset]), p[offset]
-}
+//func conv1ByteSliceToFloat64(p []byte, offset int) (float64, uint8) {
+//	return float64(p[offset]), p[offset]
+//}
 
 //func convByteSliceToFloat64(p []byte, offset int) (float64, uint64) {
 //	valueUint64 := binary.LittleEndian.Uint64(p[offset : offset+8])
@@ -1485,10 +1516,10 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 		myWin.blackSlider.Max = float64(fitsImage.Image.(*fltimg.Gray32).Max)
 		myWin.blackSlider.Min = float64(fitsImage.Image.(*fltimg.Gray32).Min)
 	case "Gray64":
-		//myWin.whiteSlider.Max = fitsImage.Image.(*fltimg.Gray64).Max
-		//myWin.whiteSlider.Min = fitsImage.Image.(*fltimg.Gray64).Min
-		//myWin.blackSlider.Max = fitsImage.Image.(*fltimg.Gray64).Max
-		//myWin.blackSlider.Min = fitsImage.Image.(*fltimg.Gray64).Min
+		myWin.whiteSlider.Max = fitsImage.Image.(*fltimg.Gray64).Max
+		myWin.whiteSlider.Min = fitsImage.Image.(*fltimg.Gray64).Min
+		myWin.blackSlider.Max = fitsImage.Image.(*fltimg.Gray64).Max
+		myWin.blackSlider.Min = fitsImage.Image.(*fltimg.Gray64).Min
 	}
 
 	//fitsImage.FillMode = canvas.ImageFillOriginal

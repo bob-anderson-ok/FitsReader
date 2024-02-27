@@ -11,13 +11,17 @@
     If you set the min black above the max white, the image will be inverted - some
     people may find this easier to look at.
 
-    The "dark" theme is standard. To force "white" theme, add anything as a command
-    line argument.
-
     Looping can be done backwards as well as (the usual) forwards.
 
     Playback should be paused when setting ROI dimensions.
 
     Author: Bob Anderson  bob.anderson.ok@gmail.com (also PyMovie, PyOTE, R-ote, Occular)
 
-    18 February 2024
+    22 February 2024
+
+    Tricks:
+       If you add as a command line parameter the character 1, white theme will be invoked
+       If you add as a command line parameter the character 2, the folder history will be erased
+         (This is used by the developer for testing - regular users have no need for this)
+       If you add as a command line parameter the character 3, white theme will be invoked
+         and the folder history will be erased (normal users should never need to do this)
