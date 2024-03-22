@@ -28,6 +28,7 @@ import (
 )
 
 type Config struct {
+	dKeyTyped            bool
 	displayBuffer        []byte
 	workingBuffer        []byte
 	bytesPerPixel        int
@@ -55,9 +56,12 @@ type Config struct {
 	centerButton         *widget.Button
 	drawROIbutton        *widget.Button
 	roiCheckbox          *widget.Check
+	deletePathCheckbox   *widget.Check
+	fileBrowserRequested bool
 	setRoiButton         *widget.Button
 	parentWindow         fyne.Window
 	folderSelectWin      fyne.Window
+	showFolder           *dialog.FileDialog
 	folderSelect         *widget.Select
 	selectionMade        bool
 	folderSelected       string
@@ -90,10 +94,12 @@ type Config struct {
 	loopEndIndex         int
 }
 
-const version = " 1.3.2"
+const version = " 1.3.3"
 
-const browseText = "Open browser to select new folder"
-const clearText = "Clear all history (if you're sure!)"
+//const browseText = "Open browser to select new folder"
+
+// const clearText = "Clear all history (if you're sure!)"
+//const clearText = "To remove a path, type D before opening this selection window, then click path to remove."
 
 //go:embed help.txt
 var helpText string
@@ -106,6 +112,8 @@ func main() {
 	myApp := app.NewWithID("com.gmail.ok.anderson.bob")
 	myWin.App = myApp
 
+	myWin.fileBrowserRequested = false
+
 	// We start app using the dark theme. There are buttons to allow theme change
 	myApp.Settings().SetTheme(&forcedVariant{Theme: theme.DefaultTheme(), variant: theme.VariantDark})
 
@@ -113,11 +121,12 @@ func main() {
 	myWin.heightStr = binding.NewString()
 
 	myWin.fitsFolderHistory = myWin.App.Preferences().StringListWithFallback("folderHistory",
-		[]string{"", browseText, "", clearText, ""})
+		[]string{})
 
 	if len(os.Args) > 1 {
 		if os.Args[1] == "2" || os.Args[1] == "3" {
-			myWin.fitsFolderHistory = []string{"", browseText, "", clearText, ""}
+			myWin.fitsFolderHistory = []string{}
+			saveFolderHistory()
 		}
 	}
 
@@ -147,6 +156,8 @@ func main() {
 
 	w := myApp.NewWindow("IOTA FITS video player" + version)
 	w.Resize(fyne.Size{Height: 800, Width: 1200})
+
+	//w.Canvas().SetOnTypedKey(func(ke *fyne.KeyEvent) { recordKeyEvent(ke) })
 
 	myWin.parentWindow = w
 
@@ -190,6 +201,11 @@ func main() {
 			myApp.Settings().SetTheme(&forcedVariant{Theme: theme.DefaultTheme(), variant: theme.VariantLight})
 		}
 	}
+
+	leftItem.Add(layout.NewSpacer())
+
+	leftItem.Add(widget.NewButton("Build flash lightcurve", func() { buildFlashLightcurve() }))
+	leftItem.Add(widget.NewButton("Timestamp FITS files", func() { addTimestampsToFitsFiles() }))
 
 	leftItem.Add(layout.NewSpacer())
 	myWin.roiCheckbox = widget.NewCheck("Apply ROI", func(checked bool) { applyRoi(checked) })
@@ -275,6 +291,23 @@ func main() {
 	w.ShowAndRun()
 }
 
+//func recordKeyEvent(ke *fyne.KeyEvent) {
+//	//fmt.Println(ke.Name)
+//	if ke.Name == fyne.KeyD {
+//		// TODO remove print stmts
+//		fmt.Println("Got a D typed")
+//		// myWin.dKeyTyped = true
+//	}
+//}
+
+func buildFlashLightcurve() {
+	fmt.Println("Build flash lightcurve requested")
+}
+
+func addTimestampsToFitsFiles() {
+	fmt.Println("Add timestamps to fits files")
+}
+
 func initializeConfig(running bool) {
 	myWin.autoPlayEnabled = false
 	myWin.loopStartIndex = -1
@@ -348,11 +381,13 @@ func showROI() {
 
 	if myWin.imageKind == "Gray32" {
 		source := myWin.fitsImages[0].Image.(*fltimg.Gray32)
+
 		//colorBytes := convUint32ToBytes([]byte{}, uint32(source.Min))
 		colorBytes := []byte{255, 255, 255, 255}
 
-		//colorBytes := convUint32ToBytes([]byte{}, uint32(myWin.blackSlider.Value))
 		for i := x0; i < x1; i++ {
+			//myWin.fitsImages[0].Image.(*fltimg.Gray32).Set(i, y0, color.White)
+
 			j := pixOffset(i, y0, source.Rect, source.Stride, 4)
 			for k := 0; k < 4; k++ {
 				source.Pix[j+k] = colorBytes[k]
@@ -380,11 +415,13 @@ func showROI() {
 
 	if myWin.imageKind == "Gray64" {
 		source := myWin.fitsImages[0].Image.(*fltimg.Gray64)
-		//colorBytes := convUint64ToBytes([]byte{}, uint64(source.Max))
-		//colorBytes := convUint64ToBytes([]byte{}, uint64(myWin.blackSlider.Value))
 		colorBytes := []byte{255, 255, 255, 255, 255, 255, 255, 255}
-		//colorBytes := []byte{1, 0, 0, 0, 0, 0, 0, 0}
+		//colorBytes := []byte{63, 240, 0, 0, 0, 0, 0, 0}
+		//colorBytes := []byte{0, 0, 0, 0, 0, 0, 0, 0}
 		for i := x0; i < x1; i++ {
+			//bobsColor := color.RGBA64{R: 65_535, G: 65_535, B: 65_535, A: 65_535}
+			//source.Set(i, y0, bobsColor)
+
 			j := pixOffset(i, y0, source.Rect, source.Stride, 8)
 			for k := 0; k < 8; k++ {
 				source.Pix[j+k] = colorBytes[k]
@@ -579,42 +616,81 @@ func disableRoiControls() {
 }
 
 func folderHistorySelect() {
+
+	// Build a dialog for holding a history of recently opened FITS folders.
+	// Provide a button to open a browser and a way to remove un-needed entries
+
+	// myWin.fitsFolderHistory is []string holding recently opened folder paths
+	// Note: processFolderSelection() is called on when a path (possibly blank) is selected from the dropdown list
 	selector := widget.NewSelect(myWin.fitsFolderHistory, func(path string) { processFolderSelection(path) })
 	myWin.folderSelect = selector // Save for use by openSelections()
 
 	// Configure selector
-	selector.PlaceHolder = "Folder history"
+	selector.PlaceHolder = "Make selection from folder history ..."
 	folderSelectWin := myWin.App.NewWindow("FITS folder history (and options)")
 	myWin.folderSelectWin = folderSelectWin
 	folderSelectWin.Resize(fyne.Size{Height: 450, Width: 700})
 
-	ctr := container.NewVBox()
-	ctr.Add(selector)
+	// Add control to allow user to specify that clicked-on paths be removed from the history
+	deleteCheckbox := widget.NewCheck("Delete path clicked on", func(checked bool) {})
+	myWin.deletePathCheckbox = deleteCheckbox
+
+	topLine := container.NewHBox(
+		deleteCheckbox,
+		widget.NewButton("Open file browser", func() {
+			openFileBrowser() // This does not open a browser, just sets a flag
+		}),
+		layout.NewSpacer())
+	ctr := container.NewVBox(topLine, selector)
 	ctr.Add(layout.NewSpacer())
 	folderSelectWin.SetContent(ctr)
 	folderSelectWin.CenterOnScreen()
 
-	folderSelectWin.SetCloseIntercept(func() { processFolderSelection("") })
+	folderSelectWin.SetCloseIntercept(func() { processFolderSelectionClosed() })
 	folderSelectWin.Show()
-
-	go openSelections()
 }
 
-func openSelections() {
-	// The following delay is apparently needed to allow the
-	// window with its widgets to be built, particularly the Select widget
-	time.Sleep(100 * time.Millisecond)
-	fakedPoint := fyne.PointEvent{
-		AbsolutePosition: myWin.folderSelect.Position(),
-		Position:         myWin.folderSelect.Position(),
+func openFileBrowser() {
+	myWin.fileBrowserRequested = true
+	myWin.folderSelectWin.Close()
+	openNewFolderDialog("")
+}
+
+func removePath(paths []string, path string) []string {
+	// This is used to remove FITS folder paths
+	var newPaths []string
+	for _, i := range paths {
+		if i != path {
+			newPaths = append(newPaths, i)
+		}
 	}
-	myWin.folderSelect.Tapped(&fakedPoint)
+	return newPaths
+}
+
+func processFolderSelectionClosed() {
+	myWin.folderSelectWin.Close()
+	return
 }
 
 func processFolderSelection(path string) {
-	//fmt.Println(path)
+
+	if myWin.deletePathCheckbox.Checked {
+		//fmt.Printf("Selection occurred while in Delete mode, so removing entry %s\n", path)
+		myWin.fitsFolderHistory = removePath(myWin.fitsFolderHistory, path)
+		saveFolderHistory()
+		path = ""
+	}
 	myWin.folderSelected = path
+	if path != "" {
+		addPathToHistory(path) // ... only adds path if not already there
+		saveFolderHistory()
+	}
 	myWin.selectionMade = true
+	myWin.folderSelectWin.Close()
+}
+
+func saveFolderHistory() {
+	myWin.App.Preferences().SetStringList("folderHistory", myWin.fitsFolderHistory)
 }
 
 func roiEntry() {
@@ -909,38 +985,46 @@ func processFileSliderMove(position float64) {
 
 func chooseFitsFolder() {
 
-	var lastFitsFolderStr string
+	//var lastFitsFolderStr string
 
-	folderHistorySelect()
-	for {
+	folderHistorySelect() // Build and open the selection dialog
+
+	for { // Wait for a selection to be made in an infinite loop or Browser open button clicked
 		time.Sleep(1 * time.Millisecond)
-		if myWin.selectionMade {
+		if myWin.selectionMade || myWin.fileBrowserRequested {
 			myWin.selectionMade = false
 			break
 		}
 	}
-	myWin.folderSelectWin.Close()
 
-	// If the user just closed the folder selection window, "" is returned.
-	if myWin.folderSelected == "" {
+	if myWin.selectionMade { // User clicked on an entry in the selection list
+		// This Close() will invoke processFolderSelection()
+		myWin.folderSelectWin.Close()
+	}
+
+	// If the user just closed the folder selection window or selected a blank line, "" is returned.
+	if myWin.folderSelected == "" && !myWin.fileBrowserRequested {
 		return
 	}
 
-	if myWin.folderSelected == clearText {
-		myWin.fitsFolderHistory = []string{"", browseText, "", clearText, ""}
-		myWin.App.Preferences().SetStringList("folderHistory", myWin.fitsFolderHistory)
-		return
-	} else if myWin.folderSelected != browseText {
+	myWin.fileBrowserRequested = false
+
+	if myWin.folderSelected != "" {
 		processFitsFolderPath(myWin.folderSelected)
-		return
 	}
 
+}
+
+func openNewFolderDialog(lastFitsFolderStr string) {
 	lastFitsFolderStr = myWin.App.Preferences().StringWithFallback("lastFitsFolder", "")
 
 	showFolder := dialog.NewFolderOpen(
 		func(path fyne.ListableURI, err error) { processFitsFolderSelection(path, err) },
 		myWin.parentWindow,
 	)
+
+	myWin.showFolder = showFolder
+
 	showFolder.Resize(fyne.Size{
 		Width:  800,
 		Height: 600,
@@ -975,6 +1059,7 @@ func pathExists(path string) bool {
 }
 
 func processFitsFolderSelection(path fyne.ListableURI, err error) {
+	myWin.showFolder.Hide()
 	if err != nil {
 		fmt.Println(fmt.Errorf("%w\n", err))
 		return
@@ -995,23 +1080,13 @@ func processFitsFolderSelection(path fyne.ListableURI, err error) {
 		}
 
 		folderToLookFor := path.Path()
-		dupFolder := false
-		for _, folderName := range myWin.fitsFolderHistory {
-			if folderName == folderToLookFor {
-				dupFolder = true
-				break
-			}
-		}
-		if !dupFolder {
-			myWin.fitsFolderHistory = append(myWin.fitsFolderHistory, folderToLookFor)
-		}
+		addPathToHistory(folderToLookFor) // ... only adds path if not already there
 
-		// A 'tidy' func that removes invalid entries: non-exist or non-directory
-		tidyFolderHistory := []string{"", browseText, "", clearText, ""}
+		// A 'tidy' func that removes invalid entries: ones that don't exist or non-directory
+		// This takes care of cases where the user moved or deleted a folder but the path
+		// is still present in the history.
+		var tidyFolderHistory []string
 		for _, folderToCheck := range myWin.fitsFolderHistory {
-			if folderToCheck == browseText || folderToCheck == clearText {
-				continue
-			}
 			if pathExists(folderToCheck) {
 				if isDirectory(folderToCheck) {
 					tidyFolderHistory = append(tidyFolderHistory, folderToCheck)
@@ -1023,7 +1098,7 @@ func processFitsFolderSelection(path fyne.ListableURI, err error) {
 			}
 		}
 		myWin.fitsFolderHistory = tidyFolderHistory
-		myWin.App.Preferences().SetStringList("folderHistory", myWin.fitsFolderHistory)
+		saveFolderHistory()
 
 		myWin.fileIndex = 0
 		myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
@@ -1038,6 +1113,20 @@ func processFitsFolderSelection(path fyne.ListableURI, err error) {
 	}
 	if len(myWin.fitsFilePaths) > 0 {
 		displayFitsImage()
+	}
+}
+
+func addPathToHistory(path string) {
+	// We only add the given path to the folder path history if it is not already there
+	dupPath := false
+	for _, folderName := range myWin.fitsFolderHistory {
+		if folderName == path {
+			dupPath = true
+			break
+		}
+	}
+	if !dupPath {
+		myWin.fitsFolderHistory = append(myWin.fitsFolderHistory, path)
 	}
 }
 
@@ -1396,6 +1485,8 @@ func pixOffset(x int, y int, r image.Rectangle, stride int, pixelByteCount int) 
 //}
 
 func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string) {
+	// Ann important side effect of this function: it fills the myWin.displayBuffer []byte
+
 	//TODO Remove this test code
 	//bobFloat32, bobUint32 := convByteSliceToFloat32([]byte{1, 2, 3, 255}, 0)
 	//bobBytes := convUint32ToBytes([]byte{}, bobUint32)
@@ -1406,7 +1497,6 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 	//fmt.Println(bobBytes)
 	//fmt.Printf("bobFloat64: %f\n", bobFloat64)
 
-	// This function has an important side effect: it fills the myWin.displayBuffer []byte
 	f := openFitsFile(filePath)
 	myWin.primaryHDU = f.HDU(0)
 	metaData, timestamp := formatMetaData(myWin.primaryHDU)
@@ -1418,12 +1508,71 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 	}
 
 	goImage := myWin.primaryHDU.(fitsio.Image).Image()
+
+	// TODO Test to show that Raw and Pix are the same thing (must be run on FITS with matching pixel type
+	//bob := myWin.primaryHDU.(fitsio.Image).Raw()
+	//minValue := 0.0
+	//maxValue := 0.0
+	//numPrinted := 0
+	//for i := 0; i < len(bob)-8; i += 8 {
+	//	ans := math.Float64frombits(binary.BigEndian.Uint64(bob[i : i+8]))
+	//	if ans < minValue {
+	//		minValue = ans
+	//	}
+	//	if ans > maxValue {
+	//		maxValue = ans
+	//	}
+	//	if ans != 0.0 {
+	//		numPrinted += 1
+	//		if numPrinted < 1000 {
+	//			fmt.Printf("%d %0.4f\n", i, ans)
+	//		}
+	//	}
+	//}
+	//fmt.Printf("%0.4f  %0.4f\n", minValue, maxValue)
+	//fmt.Println(len(bob))
+	//for i := 0; i < len(bob); i++ {
+	//	if bob[i] != 0 {
+	//		fmt.Printf("%d  %d\n", i, bob[i])
+	//	}
+	//}
+
 	if goImage == nil {
 		dialog.ShowInformation("Oops", "No images are present in the .fits file", myWin.parentWindow)
-		return nil, nil, ""
+		return nil, []string{}, ""
 	}
 	kind := reflect.TypeOf(goImage).Elem().Name()
 	myWin.imageKind = kind
+
+	// It is desirable to 'normalize' the image so that only one image kind needs
+	// to be dealt with by the rest of the code. We convert 16-bit integer, 32-bit float,
+	// and 64-bit float to 8 bit byte.
+	//var normed []byte
+	// TODO Remove this code !!!
+	//switch kind {
+	//case "Gray":
+	//	// Nothing to do - already in 8-bit form
+	//case "Gray16":
+	//	original := goImage.(*image.Gray16).Pix
+	//	biggest := uint8(0)
+	//	size := len(original)
+	//	for i := 0; i < size; i += 2 {
+	//		//normed = append(normed, original[i+1])
+	//		original[i+1] = 224
+	//		if original[i] > biggest {
+	//			biggest = original[i]
+	//		}
+	//	}
+	//	fmt.Printf("max: %d\n", biggest)
+	//	//kind = "Gray"
+	//	//goImage.(*image.Gray16).Pix = normed
+	//case "Gray32":
+	//case "Gray64":
+	//default:
+	//	msg := fmt.Sprintf("Unexpected 'kind': %s", kind)
+	//	dialog.ShowInformation("Oops", msg, myWin.parentWindow)
+	//	return nil, []string{}, ""
+	//}
 
 	fitsImage := canvas.NewImageFromImage(goImage) // This is a Fyne image
 
