@@ -375,9 +375,35 @@ func processRoiEntryInfo(ok bool) {
 	}
 }
 
+func validateROIsize(goImage image.Image) {
+	// Fix user setting ROI X size too large
+	var changeMade = false
+	width := goImage.Bounds().Max.X
+	if myWin.roiWidth > width {
+		changeMade = true
+		myWin.roiWidth = width / 2
+		_ = myWin.widthStr.Set(strconv.Itoa(width / 2))
+	}
+
+	// Fix user setting ROI Y size too large
+	height := goImage.Bounds().Max.Y
+	if myWin.roiHeight > height {
+		changeMade = true
+		myWin.roiHeight = height / 2
+		_ = myWin.heightStr.Set(strconv.Itoa(height / 2))
+	}
+
+	if changeMade {
+		myWin.x0 = width/2 - myWin.roiWidth/2
+		myWin.x1 = myWin.x0 + myWin.roiWidth - 1
+		myWin.y0 = height/2 - myWin.roiHeight/2
+		myWin.y1 = myWin.y0 + myWin.roiHeight - 1
+		saveROIposToPreferences()
+	}
+}
+
 // PixOffset returns the index of the first element of Pix that corresponds to
 // the pixel at (x, y).
-
 func pixOffset(x int, y int, r image.Rectangle, stride int, pixelByteCount int) int {
 	ans := (y-r.Min.Y)*stride + (x-r.Min.X)*pixelByteCount
 	return ans
