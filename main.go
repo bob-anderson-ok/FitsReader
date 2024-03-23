@@ -27,7 +27,8 @@ import (
 )
 
 type Config struct {
-	dKeyTyped            bool
+	lightCurveStartFrame int
+	lightCurveEndFrame   int
 	displayBuffer        []byte
 	workingBuffer        []byte
 	bytesPerPixel        int
@@ -93,7 +94,7 @@ type Config struct {
 	loopEndIndex         int
 }
 
-const version = " 1.3.3a"
+const version = " 1.3.3d"
 
 //go:embed help.txt
 var helpText string
@@ -150,8 +151,6 @@ func main() {
 
 	w := myApp.NewWindow("IOTA FITS video player" + version)
 	w.Resize(fyne.Size{Height: 800, Width: 1200})
-
-	//w.Canvas().SetOnTypedKey(func(ke *fyne.KeyEvent) { recordKeyEvent(ke) })
 
 	myWin.parentWindow = w
 
@@ -286,7 +285,17 @@ func main() {
 }
 
 func buildFlashLightcurve() {
-	fmt.Println("Build flash lightcurve requested")
+	if myWin.numFiles == 0 {
+		return // There are no frames to process
+	}
+	if myWin.loopStartIndex >= 0 && myWin.loopEndIndex >= 0 {
+		askIfLoopPointsAreToBeUsed()
+	} else {
+		myWin.lightCurveStartFrame = 0
+		myWin.lightCurveEndFrame = myWin.numFiles - 1
+	}
+	fmt.Printf("frames indexed from %d to %d inclusive will be used to build flash lightcurve\n",
+		myWin.lightCurveStartFrame, myWin.lightCurveEndFrame)
 }
 
 func addTimestampsToFitsFiles() {
