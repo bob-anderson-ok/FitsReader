@@ -35,13 +35,38 @@ func setLoopEnd() {
 func pauseAutoPlay() {
 	myWin.autoPlayEnabled = false
 }
+func playLightcurveForward() {
+	if myWin.autoPlayEnabled { // This deals with the user re-clicking the play > button
+		return // autoPlay is already running
+	}
+	myWin.autoPlayEnabled = true // This can/will be set to false by clicking the pause button
+	for {
+		if !myWin.autoPlayEnabled { // This is how we break out of the forever loop
+			return
+		}
+		if myWin.fileIndex >= myWin.lightCurveEndFrame {
+			// End point reached. Set flag for return
+			myWin.autoPlayEnabled = false
+			continue
+		}
+		// This flag will become true after file has been read and displayed by displayFitsImage()
+		myWin.waitingForFileRead = true
+		// This will increment myWin.fileIndex and invoke getFItsImage() to display the image from that file
+		processForwardOneFrame()
+		for {
+			if myWin.waitingForFileRead {
+				time.Sleep(1 * time.Millisecond)
+			} else {
+				break
+			}
+		}
+		time.Sleep(myWin.playDelay)
+	}
+}
 
 func playForward(loop bool) {
-	if !checkForFrameRateSelected() {
-		return
-	}
-
 	var endPoint int
+
 	if loop {
 		endPoint = myWin.loopEndIndex
 	} else {
@@ -71,7 +96,7 @@ func playForward(loop bool) {
 		}
 		// This flag will become true after file has been read and displayed by displayFitsImage()
 		myWin.waitingForFileRead = true
-		// This will increment myWin.fileIndex invoke getFItsImage() to display the image from that file
+		// This will increment myWin.fileIndex and invoke getFItsImage() to display the image from that file
 		processForwardOneFrame()
 		for {
 			if myWin.waitingForFileRead {

@@ -27,6 +27,8 @@ import (
 )
 
 type Config struct {
+	buildLightcurve      bool
+	lightcurve           []float64
 	lightCurveStartFrame int
 	lightCurveEndFrame   int
 	displayBuffer        []byte
@@ -94,7 +96,7 @@ type Config struct {
 	loopEndIndex         int
 }
 
-const version = " 1.3.3d"
+const version = " 1.3.3e"
 
 //go:embed help.txt
 var helpText string
@@ -290,12 +292,29 @@ func buildFlashLightcurve() {
 	}
 	if myWin.loopStartIndex >= 0 && myWin.loopEndIndex >= 0 {
 		askIfLoopPointsAreToBeUsed()
+		return
 	} else {
 		myWin.lightCurveStartFrame = 0
 		myWin.lightCurveEndFrame = myWin.numFiles - 1
 	}
+	runLightcurveAcquisition()
+}
+
+func runLightcurveAcquisition() {
 	fmt.Printf("frames indexed from %d to %d inclusive will be used to build flash lightcurve\n",
 		myWin.lightCurveStartFrame, myWin.lightCurveEndFrame)
+
+	myWin.fileSlider.SetValue(float64(myWin.lightCurveStartFrame))
+	// During the "play forward", a lightcurve will be calculated whenever the following flag is true
+	myWin.buildLightcurve = true
+	myWin.lightcurve = []float64{} // Clear the lightcurve slice
+
+	// Normally, we invoke playForward as a go routine (go playForward) so that the pause button can be used.
+	// Here we don't do this so that the generation of the lightcurve, once started, cannot be paused.
+	playLightcurveForward()
+	myWin.buildLightcurve = false
+
+	fmt.Println("End of build lightcurve")
 }
 
 func addTimestampsToFitsFiles() {
@@ -303,6 +322,8 @@ func addTimestampsToFitsFiles() {
 }
 
 func initializeConfig(running bool) {
+
+	myWin.buildLightcurve = false
 	myWin.autoPlayEnabled = false
 	myWin.loopStartIndex = -1
 	myWin.loopEndIndex = -1
@@ -509,9 +530,9 @@ func initializeImages() {
 }
 
 func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string) {
-	// Ann important side effect of this function: it fills the myWin.displayBuffer []byte
+	// An important side effect of this function: it fills the myWin.displayBuffer []byte
 
-	//TODO Remove this test code
+	//Remove this test code
 	//bobFloat32, bobUint32 := convByteSliceToFloat32([]byte{1, 2, 3, 255}, 0)
 	//bobBytes := convUint32ToBytes([]byte{}, bobUint32)
 	//fmt.Println(bobBytes)
@@ -599,6 +620,10 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 	//}
 
 	fitsImage := canvas.NewImageFromImage(goImage) // This is a Fyne image
+
+	if myWin.buildLightcurve {
+		myWin.lightcurve = append(myWin.lightcurve, pixelSum())
+	}
 
 	validateROIsize(goImage)
 
