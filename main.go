@@ -29,8 +29,8 @@ import (
 type Config struct {
 	buildLightcurve      bool
 	lightcurve           []float64
-	lightCurveStartFrame int
-	lightCurveEndFrame   int
+	lightCurveStartIndex int
+	lightCurveEndIndex   int
 	displayBuffer        []byte
 	workingBuffer        []byte
 	bytesPerPixel        int
@@ -96,7 +96,7 @@ type Config struct {
 	loopEndIndex         int
 }
 
-const version = " 1.3.3e"
+const version = " 1.3.3f"
 
 //go:embed help.txt
 var helpText string
@@ -294,25 +294,27 @@ func buildFlashLightcurve() {
 		askIfLoopPointsAreToBeUsed()
 		return
 	} else {
-		myWin.lightCurveStartFrame = 0
-		myWin.lightCurveEndFrame = myWin.numFiles - 1
+		myWin.lightCurveStartIndex = 0
+		myWin.lightCurveEndIndex = myWin.numFiles - 1
 	}
 	runLightcurveAcquisition()
 }
 
 func runLightcurveAcquisition() {
 	fmt.Printf("frames indexed from %d to %d inclusive will be used to build flash lightcurve\n",
-		myWin.lightCurveStartFrame, myWin.lightCurveEndFrame)
+		myWin.lightCurveStartIndex, myWin.lightCurveEndIndex)
 
-	myWin.fileSlider.SetValue(float64(myWin.lightCurveStartFrame))
 	// During the "play forward", a lightcurve will be calculated whenever the following flag is true
 	myWin.buildLightcurve = true
-	myWin.lightcurve = []float64{} // Clear the lightcurve slice
+	myWin.fileSlider.SetValue(float64(myWin.lightCurveStartIndex)) // This records the first frame as a side effect
+	myWin.lightcurve = []float64{}                                 // Clear the lightcurve slice
 
 	// Normally, we invoke playForward as a go routine (go playForward) so that the pause button can be used.
 	// Here we don't do this so that the generation of the lightcurve, once started, cannot be paused.
 	playLightcurveForward()
 	myWin.buildLightcurve = false
+
+	showFlashLightcurve()
 
 	fmt.Println("End of build lightcurve")
 }
@@ -532,16 +534,6 @@ func initializeImages() {
 func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string) {
 	// An important side effect of this function: it fills the myWin.displayBuffer []byte
 
-	//Remove this test code
-	//bobFloat32, bobUint32 := convByteSliceToFloat32([]byte{1, 2, 3, 255}, 0)
-	//bobBytes := convUint32ToBytes([]byte{}, bobUint32)
-	//fmt.Println(bobBytes)
-	//fmt.Printf("bobFloat32: %f\n", bobFloat32)
-	//bobFloat64, bobUint64 := convByteSliceToFloat64([]byte{1, 2, 3, 4, 5, 6, 7, 255}, 0)
-	//bobBytes = convUint64ToBytes([]byte{}, bobUint64)
-	//fmt.Println(bobBytes)
-	//fmt.Printf("bobFloat64: %f\n", bobFloat64)
-
 	f := openFitsFile(filePath)
 	myWin.primaryHDU = f.HDU(0)
 	metaData, timestamp := formatMetaData(myWin.primaryHDU)
@@ -554,34 +546,6 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 
 	goImage := myWin.primaryHDU.(fitsio.Image).Image()
 
-	// Test to show that Raw and Pix are the same thing (must be run on FITS with matching pixel type)
-	//bob := myWin.primaryHDU.(fitsio.Image).Raw()
-	//minValue := 0.0
-	//maxValue := 0.0
-	//numPrinted := 0
-	//for i := 0; i < len(bob)-8; i += 8 {
-	//	ans := math.Float64frombits(binary.BigEndian.Uint64(bob[i : i+8]))
-	//	if ans < minValue {
-	//		minValue = ans
-	//	}
-	//	if ans > maxValue {
-	//		maxValue = ans
-	//	}
-	//	if ans != 0.0 {
-	//		numPrinted += 1
-	//		if numPrinted < 1000 {
-	//			fmt.Printf("%d %0.4f\n", i, ans)
-	//		}
-	//	}
-	//}
-	//fmt.Printf("%0.4f  %0.4f\n", minValue, maxValue)
-	//fmt.Println(len(bob))
-	//for i := 0; i < len(bob); i++ {
-	//	if bob[i] != 0 {
-	//		fmt.Printf("%d  %d\n", i, bob[i])
-	//	}
-	//}
-
 	if goImage == nil {
 		dialog.ShowInformation("Oops", "No images are present in the .fits file", myWin.parentWindow)
 		return nil, []string{}, ""
@@ -589,40 +553,11 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 	kind := reflect.TypeOf(goImage).Elem().Name()
 	myWin.imageKind = kind
 
-	// It is desirable to 'normalize' the image so that only one image kind needs
-	// to be dealt with by the rest of the code. We convert 16-bit integer, 32-bit float,
-	// and 64-bit float to 8 bit byte.
-	//var normed []byte
-	// Remove this code !!!
-	//switch kind {
-	//case "Gray":
-	//	// Nothing to do - already in 8-bit form
-	//case "Gray16":
-	//	original := goImage.(*image.Gray16).Pix
-	//	biggest := uint8(0)
-	//	size := len(original)
-	//	for i := 0; i < size; i += 2 {
-	//		//normed = append(normed, original[i+1])
-	//		original[i+1] = 224
-	//		if original[i] > biggest {
-	//			biggest = original[i]
-	//		}
-	//	}
-	//	fmt.Printf("max: %d\n", biggest)
-	//	//kind = "Gray"
-	//	//goImage.(*image.Gray16).Pix = normed
-	//case "Gray32":
-	//case "Gray64":
-	//default:
-	//	msg := fmt.Sprintf("Unexpected 'kind': %s", kind)
-	//	dialog.ShowInformation("Oops", msg, myWin.parentWindow)
-	//	return nil, []string{}, ""
-	//}
-
 	fitsImage := canvas.NewImageFromImage(goImage) // This is a Fyne image
 
 	if myWin.buildLightcurve {
 		myWin.lightcurve = append(myWin.lightcurve, pixelSum())
+		//fmt.Printf("fileIndex: %d\n", myWin.fileIndex)
 	}
 
 	validateROIsize(goImage)

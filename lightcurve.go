@@ -3,21 +3,72 @@ package main
 import (
 	"encoding/binary"
 	"fmt"
+	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
 	"github.com/astrogo/fitsio"
+	"gonum.org/v1/plot"
+	"gonum.org/v1/plot/font"
+	"gonum.org/v1/plot/plotter"
+	"gonum.org/v1/plot/plotutil"
+	"gonum.org/v1/plot/vg"
 	"math"
 )
+
+func showFlashLightcurve() {
+
+	buildPlot() // Writes flashLightcurve.png in current working directory
+
+	pngWin := myWin.App.NewWindow("'flash' lightcurve")
+	pngWin.Resize(fyne.Size{Height: 450, Width: 1400})
+
+	testImage := canvas.NewImageFromFile("flashLightcurve.png")
+	pngWin.SetContent(testImage)
+	pngWin.CenterOnScreen()
+	pngWin.Show()
+}
+
+func buildPlot() {
+
+	n := len(myWin.lightcurve)
+	myPts := make(plotter.XYs, n)
+	for i := range myPts {
+		myPts[i].X = float64(i + myWin.lightCurveStartIndex)
+		myPts[i].Y = myWin.lightcurve[i]
+	}
+
+	plot.DefaultFont = font.Font{Typeface: "Liberation", Variant: "Sans", Style: 0, Weight: 3, Size: font.Points(20)}
+
+	plt := plot.New()
+	plt.X.Min = 0
+	plt.X.Max = float64(myWin.numFiles + 5)
+	plt.Title.Text = "'flash' lightcurve'"
+	plt.X.Label.Text = "frame index"
+	plt.Y.Label.Text = "intensity"
+
+	plotutil.DefaultGlyphShapes[0] = plotutil.Shape(5) // set point shape to filled circle
+
+	err := plotutil.AddScatters(plt, myPts)
+	if err != nil {
+		panic(err)
+	}
+
+	err = plt.Save(21*vg.Inch, 6*vg.Inch, "flashLightcurve.png")
+	if err != nil {
+		panic(err)
+	}
+}
 
 func askIfLoopPointsAreToBeUsed() {
 	startFrameWidget := widget.NewEntry()
 	endFrameWidget := widget.NewEntry()
 	startFrameWidget.Text = fmt.Sprintf("%d", myWin.loopStartIndex)
 	endFrameWidget.Text = fmt.Sprintf("%d", myWin.loopEndIndex)
-	item1 := widget.NewFormItem("start frame", startFrameWidget)
-	item2 := widget.NewFormItem("end frame", endFrameWidget)
+	item1 := widget.NewFormItem("start index", startFrameWidget)
+	item2 := widget.NewFormItem("end index", endFrameWidget)
 	items := []*widget.FormItem{item1, item2}
-	loopPointQuery := dialog.NewForm("Should loop start and end frames be used\n"+
+	loopPointQuery := dialog.NewForm("Should loop start and end indices be used\n"+
 		"to bracket lightcurve?", "Use", "Don't use", items,
 		func(useLoopPoints bool) { processLoopPointUsageAnswer(useLoopPoints) }, myWin.parentWindow)
 	loopPointQuery.Show()
@@ -25,11 +76,11 @@ func askIfLoopPointsAreToBeUsed() {
 
 func processLoopPointUsageAnswer(useLoopPoints bool) {
 	if useLoopPoints {
-		myWin.lightCurveStartFrame = myWin.loopStartIndex
-		myWin.lightCurveEndFrame = myWin.loopEndIndex
+		myWin.lightCurveStartIndex = myWin.loopStartIndex
+		myWin.lightCurveEndIndex = myWin.loopEndIndex
 	} else {
-		myWin.lightCurveStartFrame = 0
-		myWin.lightCurveEndFrame = myWin.numFiles - 1
+		myWin.lightCurveStartIndex = 0
+		myWin.lightCurveEndIndex = myWin.numFiles - 1
 	}
 	runLightcurveAcquisition()
 }

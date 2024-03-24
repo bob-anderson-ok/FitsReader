@@ -35,6 +35,7 @@ func setLoopEnd() {
 func pauseAutoPlay() {
 	myWin.autoPlayEnabled = false
 }
+
 func playLightcurveForward() {
 	if myWin.autoPlayEnabled { // This deals with the user re-clicking the play > button
 		return // autoPlay is already running
@@ -44,7 +45,7 @@ func playLightcurveForward() {
 		if !myWin.autoPlayEnabled { // This is how we break out of the forever loop
 			return
 		}
-		if myWin.fileIndex >= myWin.lightCurveEndFrame {
+		if myWin.fileIndex >= myWin.lightCurveEndIndex {
 			// End point reached. Set flag for return
 			myWin.autoPlayEnabled = false
 			continue
