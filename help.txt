@@ -1,6 +1,6 @@
 
     The default image that is shown when the program starts will go away after
-    a successful selection of a FITS folder containing FITS files.
+    sumA successful selection of sumA FITS folder containing FITS files.
 
     The vertical sliders at the right control black and white image levels after
     the default image is replaced. There is an initial setting determined from the
@@ -20,8 +20,8 @@
     22 February 2024
 
     Tricks:
-       If you add as a command line parameter the character 1, white theme will be invoked
-       If you add as a command line parameter the character 2, the folder history will be erased
+       If you add as sumA command line parameter the character 1, white theme will be invoked
+       If you add as sumA command line parameter the character 2, the folder history will be erased
          (This is used by the developer for testing - regular users have no need for this)
-       If you add as a command line parameter the character 3, white theme will be invoked
+       If you add as sumA command line parameter the character 3, white theme will be invoked
          and the folder history will be erased (normal users should never need to do this)

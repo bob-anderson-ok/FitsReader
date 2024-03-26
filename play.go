@@ -135,7 +135,7 @@ func setPlayDelay(opt string) {
 		myWin.playDelay = 37 * time.Millisecond // 40 - 3
 	case "30 fps":
 		myWin.playDelay = 30 * time.Millisecond // 33 - 3
-	case "max":
+	case "maxInSlice":
 		myWin.playDelay = 10 * time.Microsecond
 	default:
 		fmt.Printf("Unexpected frame rate of %s found in setPlayDelay()", opt)

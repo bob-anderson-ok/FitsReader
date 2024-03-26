@@ -29,6 +29,7 @@ import (
 type Config struct {
 	buildLightcurve      bool
 	lightcurve           []float64
+	lcIndices            []int
 	lightCurveStartIndex int
 	lightCurveEndIndex   int
 	displayBuffer        []byte
@@ -96,7 +97,7 @@ type Config struct {
 	loopEndIndex         int
 }
 
-const version = " 1.3.3f"
+const version = " 1.3.3g"
 
 //go:embed help.txt
 var helpText string
@@ -176,7 +177,7 @@ func main() {
 	selector := widget.NewSelect([]string{"1 fps", "5 fps", "10 fps", "25 fps", "30 fps", "max"},
 		func(opt string) { setPlayDelay(opt) })
 	selector.PlaceHolder = "Set play fps"
-	selector.SetSelectedIndex(2)
+	selector.SetSelectedIndex(4)            // 30 fps default (from above selection list)
 	myWin.playDelay = 97 * time.Millisecond // 100 - 3
 	leftItem.Add(selector)
 
@@ -257,7 +258,7 @@ func main() {
 	row1 := container.NewHBox(layout.NewSpacer(), myWin.timestampLabel, layout.NewSpacer())
 	row2 := container.NewHBox(layout.NewSpacer(), myWin.fileLabel, layout.NewSpacer())
 
-	myWin.fileSlider = widget.NewSlider(0, 0) // Default max - will be set by getFitsFileNames()
+	myWin.fileSlider = widget.NewSlider(0, 0) // Default maxInSlice - will be set by getFitsFileNames()
 	myWin.fileSlider.OnChanged = func(value float64) { processFileSliderMove(value) }
 
 	toolBar := container.NewHBox()
@@ -304,10 +305,15 @@ func runLightcurveAcquisition() {
 	fmt.Printf("frames indexed from %d to %d inclusive will be used to build flash lightcurve\n",
 		myWin.lightCurveStartIndex, myWin.lightCurveEndIndex)
 
+	myWin.lightcurve = []float64{} // Clear the lightcurve slice
+	myWin.lcIndices = []int{}      // and the corresponding indices
+
+	// This records the first frame as a side effect, but only if the slider changes value, so we force that.
+	myWin.fileSlider.SetValue(float64(myWin.lightCurveEndIndex))
+
 	// During the "play forward", a lightcurve will be calculated whenever the following flag is true
 	myWin.buildLightcurve = true
-	myWin.fileSlider.SetValue(float64(myWin.lightCurveStartIndex)) // This records the first frame as a side effect
-	myWin.lightcurve = []float64{}                                 // Clear the lightcurve slice
+	myWin.fileSlider.SetValue(float64(myWin.lightCurveStartIndex))
 
 	// Normally, we invoke playForward as a go routine (go playForward) so that the pause button can be used.
 	// Here we don't do this so that the generation of the lightcurve, once started, cannot be paused.
@@ -315,6 +321,7 @@ func runLightcurveAcquisition() {
 	myWin.buildLightcurve = false
 
 	showFlashLightcurve()
+	findFlashEdges()
 
 	fmt.Println("End of build lightcurve")
 }
@@ -557,7 +564,8 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 
 	if myWin.buildLightcurve {
 		myWin.lightcurve = append(myWin.lightcurve, pixelSum())
-		//fmt.Printf("fileIndex: %d\n", myWin.fileIndex)
+		myWin.lcIndices = append(myWin.lcIndices, myWin.fileIndex)
+		fmt.Printf("fileIndex: %d\n", myWin.fileIndex)
 	}
 
 	validateROIsize(goImage)
