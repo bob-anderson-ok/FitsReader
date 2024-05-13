@@ -226,6 +226,19 @@ func applyRoi(checked bool) {
 	}
 }
 
+func applyAutoStretch(checked bool) {
+	if checked {
+		//fmt.Println("AutoStretch turned on")
+		myWin.blackSlider.Hide()
+		myWin.whiteSlider.Hide()
+		displayFitsImage()
+	} else {
+		//fmt.Println("AutoStretch turned off")
+		myWin.blackSlider.Show()
+		myWin.whiteSlider.Show()
+	}
+}
+
 func validateROIparameters() {
 	// Validate ROI size and position - this is needed because the saved values from a previous
 	// run with a different image may have resulted in the saving to preferences of values that
