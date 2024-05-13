@@ -13,7 +13,6 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/astrogo/fitsio"
-	"github.com/astrogo/fitsio/fltimg"
 	"github.com/montanaflynn/stats"
 	_ "github.com/qdm12/reprint"
 	"image"
@@ -129,7 +128,7 @@ type Picture struct {
 	WaitGroup *sync.WaitGroup
 }
 
-const version = " 1.3.3h"
+const version = " 1.3.3i"
 
 //go:embed help.txt
 var helpText string
@@ -579,6 +578,42 @@ func (picture *Picture) PrepareInterpolation() {
 	}
 }
 
+func doXaxis(img, grayImage image.Image, xmax, y int) {
+	var oldColor color.Color
+	var newColor color.Gray
+	for x := 0; x < xmax; x++ {
+		oldColor = img.At(x, y) // This could be Gray|Gray16|Gray32|Gray64
+		newColor = color.GrayModel.Convert(oldColor).(color.Gray)
+		grayImage.(*image.Gray).Set(x, y, newColor)
+	}
+}
+
+func convertImageToGray(img image.Image) (grayImage image.Image) {
+	//start := time.Now()
+	//var oldColor color.Color
+	//var newColor color.Gray
+	bounds := img.Bounds()
+	grayImage = image.NewGray(bounds)
+	var wg sync.WaitGroup
+
+	for y := 0; y < bounds.Max.Y; y++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			doXaxis(img, grayImage, bounds.Max.X, y)
+		}()
+		//for x := 0; x < bounds.Max.X; x++ {
+		//	oldColor = img.At(x, y) // This could be Gray|Gray16|Gray32|Gray64
+		//	newColor = color.GrayModel.Convert(oldColor).(color.Gray)
+		//	grayImage.(*image.Gray).Set(x, y, newColor)
+		//}
+	}
+	wg.Wait()
+	//elapsed := time.Since(start)
+	//fmt.Printf("Execution time: %s\n", elapsed)
+	return grayImage
+}
+
 func saveImageToFile(img image.Image, filename string) error {
 	f, err := os.Create(filename)
 	if err != nil {
@@ -714,104 +749,23 @@ func displayFitsImage() fyne.CanvasObject {
 
 	myWin.timestampLabel.Text = timestamp
 
-	if myWin.autoStretchCheckbox.Checked {
-		fmt.Println("Presenting CLAHE image instead of slider controlled image")
-		pixels := myWin.picture.Pixels
-
-		myWin.displayBuffer = make([]byte, 0)
-		numColumns := myWin.imageWidth
-		numRows := myWin.imageHeight
-		for row := 0; row < numRows; row++ {
-			for col := 0; col < numColumns; col++ {
-				pixelValue := pixels[row][col]
-				myWin.displayBuffer = append(myWin.displayBuffer, pixelValue)
-
-				switch myWin.imageKind {
-				case "Gray":
-				case "Gray16":
-					myWin.displayBuffer = append(myWin.displayBuffer, 0)
-				case "Gray32":
-					myWin.displayBuffer = append(myWin.displayBuffer, 0)
-					myWin.displayBuffer = append(myWin.displayBuffer, 0)
-					myWin.displayBuffer = append(myWin.displayBuffer, 0)
-				case "Gray64":
-					myWin.displayBuffer = append(myWin.displayBuffer, 0)
-					myWin.displayBuffer = append(myWin.displayBuffer, 0)
-					myWin.displayBuffer = append(myWin.displayBuffer, 0)
-					myWin.displayBuffer = append(myWin.displayBuffer, 0)
-					myWin.displayBuffer = append(myWin.displayBuffer, 0)
-					myWin.displayBuffer = append(myWin.displayBuffer, 0)
-					myWin.displayBuffer = append(myWin.displayBuffer, 0)
-				}
-			}
-		}
-
-		var maxPix uint8 = 0
-		var minPix uint8 = 255
-		for i := 0; i < len(myWin.displayBuffer); i++ {
-			if myWin.displayBuffer[i] > maxPix {
-				maxPix = myWin.displayBuffer[i]
-			}
-			if myWin.displayBuffer[i] < minPix {
-				minPix = myWin.displayBuffer[i]
-			}
-
-		}
-		fmt.Printf("minPixel: %d  maxPixel: %d\n", minPix, maxPix)
-	} else {
-		if myWin.whiteSlider != nil {
-			switch myWin.imageKind {
-			case "Gray32":
-				copy(myWin.displayBuffer, imageToUse.Image.(*fltimg.Gray32).Pix) // displayBuffer <- imageToUse
-			case "Gray64":
-				copy(myWin.displayBuffer, imageToUse.Image.(*fltimg.Gray64).Pix) // displayBuffer <- imageToUse
-			case "Gray":
-				// set displayBuffer from imageToUse stretched according to contrast sliders
-				applyContrastControls(imageToUse.Image.(*image.Gray).Pix, myWin.displayBuffer, "Gray")
-				myWin.fitsImages[0].Image.(*image.Gray).Pix = myWin.displayBuffer
-			case "Gray16":
-				// set displayBuffer from imageToUse stretched according to contrast sliders
-				applyContrastControls(imageToUse.Image.(*image.Gray16).Pix, myWin.displayBuffer, "Gray16")
-				myWin.fitsImages[0].Image.(*image.Gray16).Pix = myWin.displayBuffer
-			default:
-				dialog.ShowInformation("Oops",
-					fmt.Sprintf("The image kind (%s) is unrecognized.", myWin.imageKind),
-					myWin.parentWindow)
-				return nil
-			}
+	if myWin.whiteSlider != nil {
+		switch myWin.imageKind {
+		case "Gray":
+			// set displayBuffer from imageToUse stretched according to contrast sliders
+			applyContrastControls(imageToUse.Image.(*image.Gray).Pix, myWin.displayBuffer, "Gray")
+			myWin.fitsImages[0].Image.(*image.Gray).Pix = myWin.displayBuffer
+		default:
+			dialog.ShowInformation("Oops",
+				fmt.Sprintf("The image kind (%s) is unrecognized.", myWin.imageKind),
+				myWin.parentWindow)
+			return nil
 		}
 	}
 
 	switch myWin.imageKind {
-	case "Gray16":
-		copy(myWin.fitsImages[0].Image.(*image.Gray16).Pix, myWin.displayBuffer)
-		if !myWin.roiActive {
-			restoreRect()
-		} else {
-			setROIrect()
-		}
 	case "Gray":
 		myWin.fitsImages[0].Image.(*image.Gray).Pix = myWin.displayBuffer
-		if !myWin.roiActive {
-			restoreRect()
-		} else {
-			setROIrect()
-		}
-	case "Gray32":
-		myWin.fitsImages[0].Image.(*fltimg.Gray32).Pix = myWin.displayBuffer
-		// TODO Decide whether to leave this in
-		myWin.fitsImages[0].Image.(*fltimg.Gray32).Min = float32(myWin.blackSlider.Value)
-		myWin.fitsImages[0].Image.(*fltimg.Gray32).Max = float32(myWin.whiteSlider.Value)
-		if !myWin.roiActive {
-			restoreRect()
-		} else {
-			setROIrect()
-		}
-	case "Gray64":
-		myWin.fitsImages[0].Image.(*fltimg.Gray64).Pix = myWin.displayBuffer
-		// TODO Decide whether to leave this in
-		myWin.fitsImages[0].Image.(*fltimg.Gray64).Min = myWin.blackSlider.Value
-		myWin.fitsImages[0].Image.(*fltimg.Gray64).Max = myWin.whiteSlider.Value
 		if !myWin.roiActive {
 			restoreRect()
 		} else {
@@ -871,22 +825,9 @@ func initializeImages() {
 	myWin.fitsImages = append(myWin.fitsImages, fitsImage)
 
 	goImage := myWin.primaryHDU.(fitsio.Image).Image()
-	kind := reflect.TypeOf(goImage).Elem().Name()
+	goImage = convertImageToGray(goImage)
 
-	switch kind {
-	case "Gray":
-		myWin.bytesPerPixel = 1
-	case "Gray16":
-		myWin.bytesPerPixel = 2
-	case "Gray32":
-		myWin.bytesPerPixel = 4
-	case "Gray64":
-		myWin.bytesPerPixel = 8
-	default:
-		msg := fmt.Sprintf("%s is not an image kind that is supported.", kind)
-		dialog.ShowInformation("Oops", msg, myWin.parentWindow)
-		return
-	}
+	myWin.bytesPerPixel = 1
 
 	makeDisplayBuffer(myWin.imageWidth, myWin.imageHeight)
 
@@ -918,6 +859,7 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 	}
 
 	goImage := myWin.primaryHDU.(fitsio.Image).Image()
+	goImage = convertImageToGray(goImage)
 
 	if goImage == nil {
 		dialog.ShowInformation("Oops", "No images are present in the .fits file", myWin.parentWindow)
@@ -928,24 +870,24 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 
 	// CLAHE stuff starts here ############################################################
 
-	imageWidth := goImage.Bounds().Dx()
-	imageHeight := goImage.Bounds().Dy()
+	//imageWidth := goImage.Bounds().Dx()
+	//imageHeight := goImage.Bounds().Dy()
 	//fmt.Printf("\nImage width: %d   Image height: %d", imageWidth, imageHeight)
-	blockCountX := imageWidth / 40
-	blockCountY := imageHeight / 40
+	//blockCountX := imageWidth / 40
+	//blockCountY := imageHeight / 40
 
 	// TODO CLAHE code point
-	if myWin.autoStretchCheckbox.Checked {
-		// TODO Figure out where to put this.
-		// Used to extract a png to test the CLAHE cli program
-		_ = saveImageToFile(goImage, "bob-org.png")
-		_ = saveImageToFile(goImage, "bob-clahe.png")
-		myWin.picture.Width = imageWidth
-		myWin.picture.Height = imageHeight
-
-		myWin.picture.CLAHE(goImage, blockCountX, blockCountY, 16)
-		_ = myWin.picture.Write("bob-clahe.png")
-	}
+	//if myWin.autoStretchCheckbox.Checked {
+	//	// TODO Figure out where to put this.
+	//	// Used to extract a png to test the CLAHE cli program
+	//	_ = saveImageToFile(goImage, "bob-org.png")
+	//	_ = saveImageToFile(goImage, "bob-clahe.png")
+	//	myWin.picture.Width = imageWidth
+	//	myWin.picture.Height = imageHeight
+	//
+	//	myWin.picture.CLAHE(goImage, blockCountX, blockCountY, 16)
+	//	_ = myWin.picture.Write("bob-clahe.png")
+	//}
 
 	// CLAHE stuff ends here ##############################################################
 
@@ -961,53 +903,12 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 
 	if myWin.roiActive {
 
-		if kind == "Gray16" {
-			// Test of homegrown SubImage  See kind == "Gray" below
-			roi := goImage.(*image.Gray16)
-			orgRect := roi.Rect
-			orgPix := roi.Pix
-
-			pixOffset := pixOffset(myWin.x0, myWin.y0, orgRect, roi.Stride, 2)
-			roi.Pix = orgPix[pixOffset:]
-			roi.Rect = image.Rect(myWin.x0, myWin.y0, myWin.x1, myWin.y1)
-
-			fitsImage = canvas.NewImageFromImage(roi) // This is a Fyne image
-			myWin.workingBuffer = make([]byte, len(fitsImage.Image.(*image.Gray16).Pix))
-			copy(myWin.workingBuffer, fitsImage.Image.(*image.Gray16).Pix) // workingBuffer <- fitsImage
-		}
-
 		if kind == "Gray" {
 			roi := goImage.(*image.Gray).SubImage(image.Rect(myWin.x0, myWin.y0, myWin.x1, myWin.y1))
 
 			fitsImage = canvas.NewImageFromImage(roi)                                  // This is a Fyne image
 			myWin.workingBuffer = make([]byte, len(fitsImage.Image.(*image.Gray).Pix)) // workingBuffer <- fitsImage
 			copy(myWin.workingBuffer, fitsImage.Image.(*image.Gray).Pix)
-		}
-
-		if kind == "Gray64" {
-			roi := goImage.(*fltimg.Gray64)
-			orgRect := roi.Rect
-			orgPix := roi.Pix
-			pixoffset := pixOffset(myWin.x0, myWin.y0, orgRect, roi.Stride, 8)
-			roi.Pix = orgPix[pixoffset:]
-			roi.Rect = image.Rect(myWin.x0, myWin.y0, myWin.x1, myWin.y1)
-
-			fitsImage = canvas.NewImageFromImage(roi) // This is a Fyne image
-			myWin.workingBuffer = make([]byte, len(roi.Pix))
-			copy(myWin.workingBuffer, roi.Pix)
-		}
-
-		if kind == "Gray32" {
-			roi := goImage.(*fltimg.Gray32)
-			orgRect := roi.Rect
-			orgPix := roi.Pix
-			pixoffset := pixOffset(myWin.x0, myWin.y0, orgRect, roi.Stride, 4)
-			roi.Pix = orgPix[pixoffset:]
-			roi.Rect = image.Rect(myWin.x0, myWin.y0, myWin.x1, myWin.y1)
-
-			fitsImage = canvas.NewImageFromImage(roi) // This is a Fyne image
-			myWin.workingBuffer = make([]byte, len(roi.Pix))
-			copy(myWin.workingBuffer, roi.Pix)
 		}
 
 		if myWin.roiChanged {
@@ -1020,37 +921,6 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 	if !myWin.roiActive {
 		if kind == "Gray" {
 			copy(myWin.workingBuffer, fitsImage.Image.(*image.Gray).Pix)
-		}
-		if kind == "Gray16" {
-			copy(myWin.workingBuffer, fitsImage.Image.(*image.Gray16).Pix)
-		}
-		if kind == "Gray32" {
-			copy(myWin.workingBuffer, fitsImage.Image.(*fltimg.Gray32).Pix)
-		}
-		if kind == "Gray64" {
-			copy(myWin.workingBuffer, fitsImage.Image.(*fltimg.Gray64).Pix)
-		}
-	}
-
-	if !myWin.autoStretchCheckbox.Checked {
-		switch kind {
-		case "Gray":
-			fallthrough
-		case "Gray16":
-			myWin.whiteSlider.Max = 255.0
-			myWin.whiteSlider.Min = 0.0
-			myWin.blackSlider.Max = 255.0
-			myWin.blackSlider.Min = 0.0
-		case "Gray32":
-			myWin.whiteSlider.Max = float64(fitsImage.Image.(*fltimg.Gray32).Max)
-			myWin.whiteSlider.Min = float64(fitsImage.Image.(*fltimg.Gray32).Min)
-			myWin.blackSlider.Max = float64(fitsImage.Image.(*fltimg.Gray32).Max)
-			myWin.blackSlider.Min = float64(fitsImage.Image.(*fltimg.Gray32).Min)
-		case "Gray64":
-			myWin.whiteSlider.Max = fitsImage.Image.(*fltimg.Gray64).Max
-			myWin.whiteSlider.Min = fitsImage.Image.(*fltimg.Gray64).Min
-			myWin.blackSlider.Max = fitsImage.Image.(*fltimg.Gray64).Max
-			myWin.blackSlider.Min = fitsImage.Image.(*fltimg.Gray64).Min
 		}
 	}
 
@@ -1148,16 +1018,9 @@ func applyContrastControls(original, stretched []byte, kind string) {
 
 	if myWin.autoContrastNeeded {
 		myWin.autoContrastNeeded = false
-		if kind == "Gray16" {
-			std, err = getStd(original, 2, 255)
-		}
 		if kind == "Gray" {
 			std, err = getStd(original, 1, 255)
 		}
-		//if kind == "Gray32" {
-		//	std, err = getStd(original, 4, 255)
-		//	fmt.Printf("std: %0.1f\n", std)
-		//}
 		if err != nil {
 			fmt.Println(fmt.Errorf("getstd(): %w", err))
 			return
