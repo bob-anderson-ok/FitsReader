@@ -153,7 +153,7 @@ func processFitsFolderPath(path string) {
 	myWin.fileSlider.SetValue(0)
 
 	if len(myWin.fitsFilePaths) > 0 {
-		myWin.autoStretchCheckbox.SetChecked(true)
+		//myWin.autoStretchCheckbox.SetChecked(true)
 		displayFitsImage()
 	}
 }

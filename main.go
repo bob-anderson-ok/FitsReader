@@ -30,6 +30,9 @@ import (
 type Config struct {
 	picture              *Picture
 	buildLightcurve      bool
+	adjustSliders        bool
+	blackSet             bool
+	whiteSet             bool
 	lightcurve           []float64
 	lcIndices            []int
 	lightCurveStartIndex int
@@ -61,7 +64,6 @@ type Config struct {
 	centerButton         *widget.Button
 	drawROIbutton        *widget.Button
 	roiCheckbox          *widget.Check
-	autoStretchCheckbox  *widget.Check
 	deletePathCheckbox   *widget.Check
 	fileBrowserRequested bool
 	setRoiButton         *widget.Button
@@ -98,6 +100,7 @@ type Config struct {
 	timestamp            string
 	loopStartIndex       int
 	loopEndIndex         int
+	hist                 []int
 }
 
 // Picture represents an image.
@@ -128,7 +131,7 @@ type Picture struct {
 	WaitGroup *sync.WaitGroup
 }
 
-const version = " 1.3.3i"
+const version = " 1.3.3j"
 
 //go:embed help.txt
 var helpText string
@@ -235,8 +238,8 @@ func main() {
 	leftItem.Add(widget.NewButton("Timestamp FITS files", func() { addTimestampsToFitsFiles() }))
 
 	leftItem.Add(layout.NewSpacer())
-	myWin.autoStretchCheckbox = widget.NewCheck("AutoStretch", func(checked bool) { applyAutoStretch(checked) })
-	leftItem.Add(myWin.autoStretchCheckbox)
+	//myWin.autoStretchCheckbox = widget.NewCheck("AutoStretch", func(checked bool) { applyAutoStretch(checked) })
+	//leftItem.Add(myWin.autoStretchCheckbox)
 	//myWin.autoStretchCheckbox.SetChecked(true)
 	myWin.roiCheckbox = widget.NewCheck("Apply ROI", func(checked bool) { applyRoi(checked) })
 	leftItem.Add(myWin.roiCheckbox)
@@ -614,18 +617,18 @@ func convertImageToGray(img image.Image) (grayImage image.Image) {
 	return grayImage
 }
 
-func saveImageToFile(img image.Image, filename string) error {
-	f, err := os.Create(filename)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	if err := png.Encode(f, img); err != nil {
-		return err
-	}
-	return nil
-}
+//func saveImageToFile(img image.Image, filename string) error {
+//	f, err := os.Create(filename)
+//	if err != nil {
+//		return err
+//	}
+//	defer f.Close()
+//
+//	if err := png.Encode(f, img); err != nil {
+//		return err
+//	}
+//	return nil
+//}
 
 func buildFlashLightcurve() {
 	if myWin.numFiles == 0 {
@@ -750,6 +753,18 @@ func displayFitsImage() fyne.CanvasObject {
 	myWin.timestampLabel.Text = timestamp
 
 	if myWin.whiteSlider != nil {
+		if myWin.adjustSliders {
+			if !myWin.whiteSet {
+				setSlider(myWin.hist, 75, "white")
+				myWin.whiteSet = true
+			}
+			if !myWin.blackSet {
+				setSlider(myWin.hist, 75, "black")
+				myWin.blackSet = true
+				myWin.adjustSliders = false
+			}
+			displayFitsImage()
+		}
 		switch myWin.imageKind {
 		case "Gray":
 			// set displayBuffer from imageToUse stretched according to contrast sliders
@@ -819,6 +834,10 @@ func initializeImages() {
 		return
 	}
 
+	myWin.adjustSliders = true
+	myWin.blackSet = false
+	myWin.whiteSet = false
+
 	myWin.imageWidth = fitsImage.Image.Bounds().Max.X
 	myWin.imageHeight = fitsImage.Image.Bounds().Max.Y
 
@@ -845,6 +864,68 @@ func histogram(sample []byte, stride, cornerRow, cornerCol, size int) (hist []in
 	return hist
 }
 
+func setSlider(hist []int, targetPercent int, sliderToSet string) {
+	// Compute the pixel count (requiredPixelSum) we want the standard deviation bars to enclose
+	totalPixelCount := 0
+	for i := 0; i < len(hist); i++ {
+		totalPixelCount += hist[i]
+	}
+	requiredPixelSum := totalPixelCount * targetPercent / 100
+
+	// Find the index of the histogram peak value
+	indexOfPeak := 0
+	peakValue := 0
+	for i := 0; i < len(hist); i++ {
+		if hist[i] > peakValue {
+			peakValue = hist[i]
+			indexOfPeak = i
+		}
+	}
+	fmt.Printf("Peak value is %d at %d Need %d\n", peakValue, indexOfPeak, requiredPixelSum)
+
+	// standard deviation calculation - sum of hist around peak must exceed requiredPixelSum
+	stdLeft := indexOfPeak
+	stdRight := indexOfPeak
+	stdSum := peakValue
+	keepGoing := true
+	for keepGoing {
+		if stdLeft > 0 {
+			stdLeft -= 1
+			stdSum += hist[stdLeft]
+		}
+		if stdRight < len(hist)-1 {
+			stdRight += 1
+			stdSum += hist[stdRight]
+		}
+		keepGoing = stdSum <= requiredPixelSum
+	}
+	fmt.Printf("stdLeft: %d  stdRight: %d\n", stdLeft, stdRight)
+
+	// Calculate slider position
+	stdWidth := stdRight - stdLeft
+	if stdWidth < 2 {
+		stdWidth = 2
+	}
+	blackLevel := indexOfPeak - stdWidth
+	if blackLevel < 0 {
+		blackLevel = 0
+	}
+	whiteLevel := indexOfPeak + 6*stdWidth
+	if whiteLevel > 255 {
+		whiteLevel = 255
+	}
+	if sliderToSet == "black" {
+		myWin.blackSlider.SetValue(float64(blackLevel))
+		fmt.Printf("Set black slider to %d\n", blackLevel)
+	}
+	if sliderToSet == "white" {
+		myWin.whiteSlider.SetValue(float64(whiteLevel))
+		fmt.Printf("Set white slider to %d\n", whiteLevel)
+
+	}
+	fmt.Printf("blackLevel: %d  whiteLevel: %d\n", blackLevel, whiteLevel)
+}
+
 func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string) {
 	// An important side effect of this function: it fills the myWin.displayBuffer []byte
 
@@ -860,6 +941,19 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 
 	goImage := myWin.primaryHDU.(fitsio.Image).Image()
 	goImage = convertImageToGray(goImage)
+
+	if myWin.adjustSliders {
+		// Calculate coordinates of sampling aperture for histogram
+		imageWidth := myWin.imageWidth
+		imageHeight := myWin.imageHeight
+		centerRow := imageHeight / 2
+		centerCol := imageWidth / 2
+		halfSize := 50
+		cornerRow := centerRow - halfSize
+		cornerCol := centerCol - halfSize
+
+		myWin.hist = histogram(goImage.(*image.Gray).Pix, goImage.(*image.Gray).Stride, cornerRow, cornerCol, halfSize*2)
+	}
 
 	if goImage == nil {
 		dialog.ShowInformation("Oops", "No images are present in the .fits file", myWin.parentWindow)
@@ -1013,30 +1107,30 @@ func applyContrastControls(original, stretched []byte, kind string) {
 	bot := myWin.blackSlider.Value
 	top := myWin.whiteSlider.Value
 
-	var std float64
-	var err error
+	//var std float64
+	//var err error
 
-	if myWin.autoContrastNeeded {
-		myWin.autoContrastNeeded = false
-		if kind == "Gray" {
-			std, err = getStd(original, 1, 255)
-		}
-		if err != nil {
-			fmt.Println(fmt.Errorf("getstd(): %w", err))
-			return
-		}
-		//fmt.Printf("std: %0.1f\n", std)
-		bot = -3 * std
-		top = 5 * std
-	}
-	if bot < 0 {
-		bot = 0
-	}
-	if top > 255 {
-		top = 255
-	}
-	myWin.blackSlider.SetValue(bot)
-	myWin.whiteSlider.SetValue(top)
+	//if myWin.autoContrastNeeded {
+	//	myWin.autoContrastNeeded = false
+	//	if kind == "Gray" {
+	//		std, err = getStd(original, 1, 255)
+	//	}
+	//	if err != nil {
+	//		fmt.Println(fmt.Errorf("getstd(): %w", err))
+	//		return
+	//	}
+	//	//fmt.Printf("std: %0.1f\n", std)
+	//	bot = -3 * std
+	//	top = 5 * std
+	//}
+	//if bot < 0 {
+	//	bot = 0
+	//}
+	//if top > 255 {
+	//	top = 255
+	//}
+	//myWin.blackSlider.SetValue(bot)
+	//myWin.whiteSlider.SetValue(top)
 
 	invert := bot > top
 	if top > bot {
