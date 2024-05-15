@@ -13,14 +13,12 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"github.com/astrogo/fitsio"
-	"github.com/montanaflynn/stats"
 	_ "github.com/qdm12/reprint"
 	"image"
 	"image/color"
 	"image/png"
 	"math"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,6 +26,7 @@ import (
 )
 
 type Config struct {
+	reportCount          int
 	picture              *Picture
 	buildLightcurve      bool
 	adjustSliders        bool
@@ -86,7 +85,7 @@ type Config struct {
 	numFiles             int
 	waitingForFileRead   bool
 	fitsImages           []*canvas.Image
-	imageKind            string
+	//imageKind            string
 	fileLabel            *widget.Label
 	timestampLabel       *canvas.Text
 	fileIndex            int
@@ -131,7 +130,7 @@ type Picture struct {
 	WaitGroup *sync.WaitGroup
 }
 
-const version = " 1.3.3j"
+const version = " 1.3.3k"
 
 //go:embed help.txt
 var helpText string
@@ -743,7 +742,6 @@ func displayFitsImage() fyne.CanvasObject {
 	myWin.fileLabel.SetText(myWin.fitsFilePaths[myWin.fileIndex])
 
 	// A side effect of the next call is that myWin.displayBuffer is filled.
-	// If autoStretch in use, myWin.picture will have the image rendered by CLAHE procedure
 	imageToUse, _, timestamp := getFitsImageFromFilePath(myWin.fitsFilePaths[myWin.fileIndex])
 
 	if imageToUse == nil {
@@ -763,34 +761,18 @@ func displayFitsImage() fyne.CanvasObject {
 				myWin.blackSet = true
 				myWin.adjustSliders = false
 			}
-			displayFitsImage()
 		}
-		switch myWin.imageKind {
-		case "Gray":
-			// set displayBuffer from imageToUse stretched according to contrast sliders
-			applyContrastControls(imageToUse.Image.(*image.Gray).Pix, myWin.displayBuffer, "Gray")
-			myWin.fitsImages[0].Image.(*image.Gray).Pix = myWin.displayBuffer
-		default:
-			dialog.ShowInformation("Oops",
-				fmt.Sprintf("The image kind (%s) is unrecognized.", myWin.imageKind),
-				myWin.parentWindow)
-			return nil
-		}
+		// set displayBuffer from imageToUse stretched according to contrast sliders
+		applyContrastControls(imageToUse.Image.(*image.Gray).Pix, myWin.displayBuffer)
+		myWin.fitsImages[0].Image.(*image.Gray).Pix = myWin.displayBuffer
+	} else {
+		myWin.fitsImages[0].Image.(*image.Gray).Pix = myWin.displayBuffer
 	}
 
-	switch myWin.imageKind {
-	case "Gray":
-		myWin.fitsImages[0].Image.(*image.Gray).Pix = myWin.displayBuffer
-		if !myWin.roiActive {
-			restoreRect()
-		} else {
-			setROIrect()
-		}
-	default:
-		dialog.ShowInformation("Oops",
-			fmt.Sprintf("The image kind (%s) is unrecognized.", myWin.imageKind),
-			myWin.parentWindow)
-		return nil
+	if !myWin.roiActive {
+		restoreRect()
+	} else {
+		setROIrect()
 	}
 
 	myWin.centerContent.Objects[0] = myWin.fitsImages[0]
@@ -864,6 +846,12 @@ func histogram(sample []byte, stride, cornerRow, cornerCol, size int) (hist []in
 	return hist
 }
 
+func reportROIsettings() {
+	myWin.reportCount += 1
+	fmt.Printf("roi report number: %d\n", myWin.reportCount)
+	fmt.Printf("roiWidth: %d   roiHeight: %d\n", myWin.roiWidth, myWin.roiHeight)
+	fmt.Printf("x0: %d  y0: %d  x1: %d  y1: %d\n\n", myWin.x0, myWin.y0, myWin.x1, myWin.y1)
+}
 func setSlider(hist []int, targetPercent int, sliderToSet string) {
 	// Compute the pixel count (requiredPixelSum) we want the standard deviation bars to enclose
 	totalPixelCount := 0
@@ -881,7 +869,7 @@ func setSlider(hist []int, targetPercent int, sliderToSet string) {
 			indexOfPeak = i
 		}
 	}
-	fmt.Printf("Peak value is %d at %d Need %d\n", peakValue, indexOfPeak, requiredPixelSum)
+	//fmt.Printf("Peak value is %d at %d Need %d\n", peakValue, indexOfPeak, requiredPixelSum)
 
 	// standard deviation calculation - sum of hist around peak must exceed requiredPixelSum
 	stdLeft := indexOfPeak
@@ -899,7 +887,7 @@ func setSlider(hist []int, targetPercent int, sliderToSet string) {
 		}
 		keepGoing = stdSum <= requiredPixelSum
 	}
-	fmt.Printf("stdLeft: %d  stdRight: %d\n", stdLeft, stdRight)
+	//fmt.Printf("stdLeft: %d  stdRight: %d\n", stdLeft, stdRight)
 
 	// Calculate slider position
 	stdWidth := stdRight - stdLeft
@@ -916,14 +904,13 @@ func setSlider(hist []int, targetPercent int, sliderToSet string) {
 	}
 	if sliderToSet == "black" {
 		myWin.blackSlider.SetValue(float64(blackLevel))
-		fmt.Printf("Set black slider to %d\n", blackLevel)
+		//fmt.Printf("Set black slider to %d\n", blackLevel)
 	}
 	if sliderToSet == "white" {
 		myWin.whiteSlider.SetValue(float64(whiteLevel))
-		fmt.Printf("Set white slider to %d\n", whiteLevel)
-
+		//fmt.Printf("Set white slider to %d\n", whiteLevel)
 	}
-	fmt.Printf("blackLevel: %d  whiteLevel: %d\n", blackLevel, whiteLevel)
+	//fmt.Printf("blackLevel: %d  whiteLevel: %d\n", blackLevel, whiteLevel)
 }
 
 func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string) {
@@ -959,31 +946,6 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 		dialog.ShowInformation("Oops", "No images are present in the .fits file", myWin.parentWindow)
 		return nil, []string{}, ""
 	}
-	kind := reflect.TypeOf(goImage).Elem().Name()
-	myWin.imageKind = kind
-
-	// CLAHE stuff starts here ############################################################
-
-	//imageWidth := goImage.Bounds().Dx()
-	//imageHeight := goImage.Bounds().Dy()
-	//fmt.Printf("\nImage width: %d   Image height: %d", imageWidth, imageHeight)
-	//blockCountX := imageWidth / 40
-	//blockCountY := imageHeight / 40
-
-	// TODO CLAHE code point
-	//if myWin.autoStretchCheckbox.Checked {
-	//	// TODO Figure out where to put this.
-	//	// Used to extract a png to test the CLAHE cli program
-	//	_ = saveImageToFile(goImage, "bob-org.png")
-	//	_ = saveImageToFile(goImage, "bob-clahe.png")
-	//	myWin.picture.Width = imageWidth
-	//	myWin.picture.Height = imageHeight
-	//
-	//	myWin.picture.CLAHE(goImage, blockCountX, blockCountY, 16)
-	//	_ = myWin.picture.Write("bob-clahe.png")
-	//}
-
-	// CLAHE stuff ends here ##############################################################
 
 	fitsImage := canvas.NewImageFromImage(goImage) // This is a Fyne image
 
@@ -997,13 +959,12 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 
 	if myWin.roiActive {
 
-		if kind == "Gray" {
-			roi := goImage.(*image.Gray).SubImage(image.Rect(myWin.x0, myWin.y0, myWin.x1, myWin.y1))
+		roi := goImage.(*image.Gray).SubImage(image.Rect(myWin.x0, myWin.y0, myWin.x1, myWin.y1))
 
-			fitsImage = canvas.NewImageFromImage(roi)                                  // This is a Fyne image
-			myWin.workingBuffer = make([]byte, len(fitsImage.Image.(*image.Gray).Pix)) // workingBuffer <- fitsImage
-			copy(myWin.workingBuffer, fitsImage.Image.(*image.Gray).Pix)
-		}
+		fitsImage = canvas.NewImageFromImage(roi)                                  // This is a Fyne image
+		myWin.workingBuffer = make([]byte, len(fitsImage.Image.(*image.Gray).Pix)) // workingBuffer <- fitsImage
+		copy(myWin.workingBuffer, fitsImage.Image.(*image.Gray).Pix)               // workingBuffer <- fitsImage
+		copy(myWin.displayBuffer, fitsImage.Image.(*image.Gray).Pix)               // displayBuffer <- fitsImage
 
 		if myWin.roiChanged {
 			myWin.roiChanged = false
@@ -1013,9 +974,7 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 	}
 
 	if !myWin.roiActive {
-		if kind == "Gray" {
-			copy(myWin.workingBuffer, fitsImage.Image.(*image.Gray).Pix)
-		}
+		copy(myWin.workingBuffer, fitsImage.Image.(*image.Gray).Pix)
 	}
 
 	//fitsImage.FillMode = canvas.ImageFillOriginal
@@ -1083,18 +1042,18 @@ func getFitsFilenames(folder string) []string {
 	return fitsPaths
 }
 
-func getStd(dataIn []byte, stride int, clip int) (float64, error) {
-	var data []float64
-	for i := 0; i < len(dataIn); i += stride {
-		if int(dataIn[i]) < clip && int(dataIn[i]) > 0 {
-			data = append(data, float64(dataIn[i]))
-		}
-	}
-	return stats.StandardDeviation(data)
-}
+//func getStd(dataIn []byte, stride int, clip int) (float64, error) {
+//	var data []float64
+//	for i := 0; i < len(dataIn); i += stride {
+//		if int(dataIn[i]) < clip && int(dataIn[i]) > 0 {
+//			data = append(data, float64(dataIn[i]))
+//		}
+//	}
+//	return stats.StandardDeviation(data)
+//}
 
-func applyContrastControls(original, stretched []byte, kind string) {
-	// The slice stretched is modified. The slice original is untouched
+func applyContrastControls(original, stretched []byte) {
+	// stretched is modified.    original is untouched.
 	var floatVal float64
 	var scale float64
 
@@ -1106,31 +1065,6 @@ func applyContrastControls(original, stretched []byte, kind string) {
 
 	bot := myWin.blackSlider.Value
 	top := myWin.whiteSlider.Value
-
-	//var std float64
-	//var err error
-
-	//if myWin.autoContrastNeeded {
-	//	myWin.autoContrastNeeded = false
-	//	if kind == "Gray" {
-	//		std, err = getStd(original, 1, 255)
-	//	}
-	//	if err != nil {
-	//		fmt.Println(fmt.Errorf("getstd(): %w", err))
-	//		return
-	//	}
-	//	//fmt.Printf("std: %0.1f\n", std)
-	//	bot = -3 * std
-	//	top = 5 * std
-	//}
-	//if bot < 0 {
-	//	bot = 0
-	//}
-	//if top > 255 {
-	//	top = 255
-	//}
-	//myWin.blackSlider.SetValue(bot)
-	//myWin.whiteSlider.SetValue(top)
 
 	invert := bot > top
 	if top > bot {

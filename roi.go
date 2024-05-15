@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
-	"github.com/astrogo/fitsio/fltimg"
 	"image"
 	"image/color"
 	"strconv"
 )
 
 func showROI() {
+	reportROIsettings()
 	validateROIparameters()
 	if myWin.roiActive {
 		myWin.roiCheckbox.SetChecked(false)
@@ -23,104 +23,17 @@ func showROI() {
 	y0 := myWin.y0
 	y1 := myWin.y1
 
-	//fmt.Printf("x0: %d  y0: %d   x1: %d  y1: %d\n", x0, y0, x1, y1)
-
-	if myWin.imageKind == "Gray16" {
-		for i := x0; i < x1; i++ {
-			myWin.fitsImages[0].Image.(*image.Gray16).Set(i, y0, color.White)
-		}
-		for i := x0; i < x1+1; i++ {
-			myWin.fitsImages[0].Image.(*image.Gray16).Set(i, y1, color.White)
-		}
-		for i := y0; i < y1; i++ {
-			myWin.fitsImages[0].Image.(*image.Gray16).Set(x0, i, color.White)
-		}
-		for i := y0; i < y1; i++ {
-			myWin.fitsImages[0].Image.(*image.Gray16).Set(x1, i, color.White)
-		}
+	for i := x0; i < x1; i++ {
+		myWin.fitsImages[0].Image.(*image.Gray).Set(i, y0, color.White)
 	}
-
-	if myWin.imageKind == "Gray" {
-		for i := x0; i < x1; i++ {
-			myWin.fitsImages[0].Image.(*image.Gray).Set(i, y0, color.White)
-		}
-		for i := x0; i < x1+1; i++ {
-			myWin.fitsImages[0].Image.(*image.Gray).Set(i, y1, color.White)
-		}
-		for i := y0; i < y1; i++ {
-			myWin.fitsImages[0].Image.(*image.Gray).Set(x0, i, color.White)
-		}
-		for i := y0; i < y1; i++ {
-			myWin.fitsImages[0].Image.(*image.Gray).Set(x1, i, color.White)
-		}
+	for i := x0; i < x1+1; i++ {
+		myWin.fitsImages[0].Image.(*image.Gray).Set(i, y1, color.White)
 	}
-
-	if myWin.imageKind == "Gray32" {
-		source := myWin.fitsImages[0].Image.(*fltimg.Gray32)
-
-		//colorBytes := convUint32ToBytes([]byte{}, uint32(source.Min))
-		colorBytes := []byte{255, 255, 255, 255}
-
-		for i := x0; i < x1; i++ {
-			//myWin.fitsImages[0].Image.(*fltimg.Gray32).Set(i, y0, color.White)
-
-			j := pixOffset(i, y0, source.Rect, source.Stride, 4)
-			for k := 0; k < 4; k++ {
-				source.Pix[j+k] = colorBytes[k]
-			}
-		}
-		for i := x0; i < x1+1; i++ {
-			j := pixOffset(i, y1, source.Rect, source.Stride, 4)
-			for k := 0; k < 4; k++ {
-				source.Pix[j+k] = colorBytes[k]
-			}
-		}
-		for i := y0; i < y1; i++ {
-			j := pixOffset(x0, i, source.Rect, source.Stride, 4)
-			for k := 0; k < 4; k++ {
-				source.Pix[j+k] = colorBytes[k]
-			}
-		}
-		for i := y0; i < y1; i++ {
-			j := pixOffset(x1, i, source.Rect, source.Stride, 4)
-			for k := 0; k < 4; k++ {
-				source.Pix[j+k] = colorBytes[k]
-			}
-		}
+	for i := y0; i < y1; i++ {
+		myWin.fitsImages[0].Image.(*image.Gray).Set(x0, i, color.White)
 	}
-
-	if myWin.imageKind == "Gray64" {
-		source := myWin.fitsImages[0].Image.(*fltimg.Gray64)
-		colorBytes := []byte{255, 255, 255, 255, 255, 255, 255, 255}
-		//colorBytes := []byte{63, 240, 0, 0, 0, 0, 0, 0}
-		//colorBytes := []byte{0, 0, 0, 0, 0, 0, 0, 0}
-		for i := x0; i < x1; i++ {
-			//bobsColor := color.RGBA64{R: 65_535, G: 65_535, B: 65_535, A: 65_535}
-			//source.Set(i, y0, bobsColor)
-
-			j := pixOffset(i, y0, source.Rect, source.Stride, 8)
-			for k := 0; k < 8; k++ {
-				source.Pix[j+k] = colorBytes[k]
-			}
-		}
-		for i := x0; i < x1+1; i++ {
-			j := pixOffset(i, y1, source.Rect, source.Stride, 8)
-			for k := 0; k < 8; k++ {
-				source.Pix[j+k] = colorBytes[k]
-			}
-		}
-		for i := y0; i < y1; i++ {
-			j := pixOffset(x0, i, source.Rect, source.Stride, 8)
-			for k := 0; k < 8; k++ {
-				source.Pix[j+k] = colorBytes[k]
-			}
-		}
-		for i := y0; i < y1; i++ {
-			j := pixOffset(x1, i, source.Rect, source.Stride, 8)
-			for k := 0; k < 8; k++ {
-				source.Pix[j+k] = colorBytes[k]
-			}
-		}
+	for i := y0; i < y1; i++ {
+		myWin.fitsImages[0].Image.(*image.Gray).Set(x1, i, color.White)
 	}
 
 	myWin.centerContent.Refresh()
@@ -210,34 +123,32 @@ func moveRoiRight() {
 }
 
 func applyRoi(checked bool) {
-
+	reportROIsettings()
 	validateROIparameters()
 
 	myWin.roiActive = checked
 	if checked {
-		//printImageStats("apply ROI: ")
 		myWin.roiChanged = true
 		displayFitsImage()
 	} else {
-		//printImageStats("remove ROI: ")
 		makeDisplayBuffer(myWin.imageWidth, myWin.imageHeight)
 		restoreRect()
 		displayFitsImage()
 	}
 }
 
-func applyAutoStretch(checked bool) {
-	if checked {
-		//fmt.Println("AutoStretch turned on")
-		myWin.blackSlider.Hide()
-		myWin.whiteSlider.Hide()
-		displayFitsImage()
-	} else {
-		//fmt.Println("AutoStretch turned off")
-		myWin.blackSlider.Show()
-		myWin.whiteSlider.Show()
-	}
-}
+//func applyAutoStretch(checked bool) {
+//	if checked {
+//		//fmt.Println("AutoStretch turned on")
+//		myWin.blackSlider.Hide()
+//		myWin.whiteSlider.Hide()
+//		displayFitsImage()
+//	} else {
+//		//fmt.Println("AutoStretch turned off")
+//		myWin.blackSlider.Show()
+//		myWin.whiteSlider.Show()
+//	}
+//}
 
 func validateROIparameters() {
 	// Validate ROI size and position - this is needed because the saved values from a previous
@@ -280,6 +191,7 @@ func validateROIparameters() {
 	if changeMade {
 		saveROIposToPreferences()
 	}
+	reportROIsettings()
 }
 
 func enableRoiControls() {
@@ -417,97 +329,29 @@ func validateROIsize(goImage image.Image) {
 
 // PixOffset returns the index of the first element of Pix that corresponds to
 // the pixel at (x, y).
-func pixOffset(x int, y int, r image.Rectangle, stride int, pixelByteCount int) int {
-	ans := (y-r.Min.Y)*stride + (x-r.Min.X)*pixelByteCount
-	return ans
-}
+//func pixOffset(x int, y int, r image.Rectangle, stride int, pixelByteCount int) int {
+//	ans := (y-r.Min.Y)*stride + (x-r.Min.X)*pixelByteCount
+//	return ans
+//}
 
 func restoreRect() {
-	switch myWin.imageKind {
-	case "Gray16":
-		myWin.fitsImages[0].Image.(*image.Gray16).Rect.Max = image.Point{
-			X: myWin.imageWidth,
-			Y: myWin.imageHeight,
-		}
-		myWin.fitsImages[0].Image.(*image.Gray16).Rect.Min = image.Point{
-			X: 0,
-			Y: 0,
-		}
-	case "Gray":
-		myWin.fitsImages[0].Image.(*image.Gray).Rect.Max = image.Point{
-			X: myWin.imageWidth,
-			Y: myWin.imageHeight,
-		}
-		myWin.fitsImages[0].Image.(*image.Gray).Rect.Min = image.Point{
-			X: 0,
-			Y: 0,
-		}
-	case "Gray32":
-		myWin.fitsImages[0].Image.(*fltimg.Gray32).Rect.Max = image.Point{
-			X: myWin.imageWidth,
-			Y: myWin.imageHeight,
-		}
-		myWin.fitsImages[0].Image.(*fltimg.Gray32).Rect.Min = image.Point{
-			X: 0,
-			Y: 0,
-		}
-	case "Gray64":
-		myWin.fitsImages[0].Image.(*fltimg.Gray64).Rect.Max = image.Point{
-			X: myWin.imageWidth,
-			Y: myWin.imageHeight,
-		}
-		myWin.fitsImages[0].Image.(*fltimg.Gray64).Rect.Min = image.Point{
-			X: 0,
-			Y: 0,
-		}
-	default:
-		dialog.ShowInformation("Oops",
-			fmt.Sprintf("The image kind (%s) is unrecognized.", myWin.imageKind),
-			myWin.parentWindow)
+	myWin.fitsImages[0].Image.(*image.Gray).Rect.Max = image.Point{
+		X: myWin.imageWidth,
+		Y: myWin.imageHeight,
+	}
+	myWin.fitsImages[0].Image.(*image.Gray).Rect.Min = image.Point{
+		X: 0,
+		Y: 0,
 	}
 }
 
 func setROIrect() {
-	switch myWin.imageKind {
-	case "Gray16":
-		myWin.fitsImages[0].Image.(*image.Gray16).Rect.Max = image.Point{
-			X: myWin.x1,
-			Y: myWin.y1,
-		}
-		myWin.fitsImages[0].Image.(*image.Gray16).Rect.Min = image.Point{
-			X: myWin.x0,
-			Y: myWin.y0,
-		}
-	case "Gray":
-		myWin.fitsImages[0].Image.(*image.Gray).Rect.Max = image.Point{
-			X: myWin.x1,
-			Y: myWin.x1,
-		}
-		myWin.fitsImages[0].Image.(*image.Gray).Rect.Min = image.Point{
-			X: myWin.x0,
-			Y: myWin.y0,
-		}
-	case "Gray32":
-		myWin.fitsImages[0].Image.(*fltimg.Gray32).Rect.Max = image.Point{
-			X: myWin.x1,
-			Y: myWin.y1,
-		}
-		myWin.fitsImages[0].Image.(*fltimg.Gray32).Rect.Min = image.Point{
-			X: myWin.x0,
-			Y: myWin.y0,
-		}
-	case "Gray64":
-		myWin.fitsImages[0].Image.(*fltimg.Gray64).Rect.Max = image.Point{
-			X: myWin.x1,
-			Y: myWin.y1,
-		}
-		myWin.fitsImages[0].Image.(*fltimg.Gray64).Rect.Min = image.Point{
-			X: myWin.x0,
-			Y: myWin.y0,
-		}
-	default:
-		dialog.ShowInformation("Oops",
-			fmt.Sprintf("The image kind (%s) is unrecognized.", myWin.imageKind),
-			myWin.parentWindow)
+	myWin.fitsImages[0].Image.(*image.Gray).Rect.Max = image.Point{
+		X: myWin.x1,
+		Y: myWin.y1,
+	}
+	myWin.fitsImages[0].Image.(*image.Gray).Rect.Min = image.Point{
+		X: myWin.x0,
+		Y: myWin.y0,
 	}
 }
