@@ -41,7 +41,7 @@ func buildPlot() {
 	plt := plot.New()
 	plt.X.Min = 0
 	plt.X.Max = float64(myWin.numFiles + 5)
-	plt.Title.Text = "'flash' lightcurve'"
+	plt.Title.Text = "'flash' lightcurve"
 	plt.X.Label.Text = "frame index"
 	plt.Y.Label.Text = "intensity"
 

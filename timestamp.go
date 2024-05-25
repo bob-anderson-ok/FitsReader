@@ -14,20 +14,20 @@ func findFlashEdges() {
 	midFlashLevel := (maxFlashLevel + minFlashLevel) / 2.0
 
 	stats1 := new(EdgeStats)
-	extractEdgeTimeAndStats(fc, 0, midFlashLevel, stats1)
+	extractEdgeTimeAndStats(fc, "left", midFlashLevel, stats1)
 	fmt.Printf("first edge at %0.6f\n", stats1.edgeAt)
 
 	stats2 := new(EdgeStats)
-	extractEdgeTimeAndStats(fc, 60, midFlashLevel, stats2)
+	extractEdgeTimeAndStats(fc, "right", midFlashLevel, stats2)
 	fmt.Printf("second edge at %0.6f\n", stats2.edgeAt)
 }
 
 type EdgeStats struct {
 	intermediatePointIntensity float64
-	leftStd                    float64
-	leftMean                   float64
-	rightStd                   float64
-	rightMean                  float64
+	bottomStd                  float64
+	bottomMean                 float64
+	topStd                     float64
+	topMean                    float64
 	edgeSigma                  float64
 	edgeAt                     float64
 	pSNR                       float64
@@ -45,117 +45,134 @@ func prettyPrintWing(wingName string, values []float64) {
 	}
 	fmt.Println()
 }
-func extractEdgeTimeAndStats(fc []float64, startingFrame int, midFlashLevel float64, edgeStats *EdgeStats) {
+
+func mean(data []float64) float64 {
+	if len(data) == 0 {
+		return 0.0
+	}
+
+	var sum = 0.0
+	for _, d := range data {
+		sum += d
+	}
+	return sum / float64(len(data))
+}
+
+func getTransitionPointData(flashWing []float64) (meanBottom, stdBottom, meanTop, stdTop float64, transitionIndex int) {
+	transitionIndex = 0
+	var a = 0
+	var b = 0
+	var maxDelta = 0.0
+
+	for i := 0; i < len(flashWing)-2; i += 1 {
+		delta := flashWing[i+2] - flashWing[i]
+		if delta > maxDelta {
+			maxDelta = delta
+			a = i + 1
+			b = i + 2
+		}
+	}
+
+	//At this point, either a or b is the correct index for the transition point. We use logic to
+	//pick the best
+
+	bottom := flashWing[0:a]
+	top := flashWing[a+1 : len(flashWing)-1]
+	meanBottom = mean(bottom)
+	stdBottom, _ = stats.StandardDeviation(bottom)
+	meanTop = mean(top)
+	stdTop, _ = stats.StandardDeviation(top)
+
+	aIsCandidate := !(flashWing[a] < meanBottom)
+	bIsCandidate := !(flashWing[b] > meanTop)
+
+	if !(aIsCandidate || bIsCandidate) {
+		transitionIndex = b
+	} else {
+		if !aIsCandidate {
+			transitionIndex = b
+		} else if !bIsCandidate {
+			transitionIndex = a
+		} else {
+			bDelta := meanTop - flashWing[b]
+			aDelta := flashWing[a] - meanBottom
+			if bDelta > aDelta {
+				transitionIndex = b
+			} else {
+				transitionIndex = a
+			}
+		}
+	}
+	return meanBottom, stdBottom, meanTop, stdTop, transitionIndex
+}
+
+func extractEdgeTimeAndStats(fc []float64, goalpost string, midFlashLevel float64, edgeStats *EdgeStats) {
 	const debugPrint bool = true
 	if debugPrint {
 		fmt.Printf("\n\n")
 	}
-	leftWing, rightWing := getFlashEdge(fc[startingFrame:], midFlashLevel)
-	if debugPrint {
-		prettyPrintWing("left wing:", leftWing)
-		prettyPrintWing("right wing:", rightWing)
+
+	var leftWing []float64
+	var rightWing []float64
+	var startingIndex = 0
+
+	// left and right here refer to the left goalpost and the rightmost goalpost
+
+	if goalpost == "left" {
+		leftWing = getLeftFlashEdge(fc, midFlashLevel)
+	} else {
+		rightWing, startingIndex = getRightFlashEdge(fc, midFlashLevel)
 	}
-	leftStd, _ := stats.StandardDeviation(leftWing[0 : len(leftWing)-1])
-	leftMean, _ := stats.Mean(leftWing[0 : len(leftWing)-1])
-	rightStd, _ := stats.StandardDeviation(rightWing[1 : len(rightWing)-2])
-	rightMean, _ := stats.Mean(rightWing[1 : len(rightWing)-2])
 
-	edgeStats.leftStd = leftStd
-	edgeStats.leftMean = leftMean
-	edgeStats.rightStd = rightStd
-	edgeStats.rightMean = rightMean
+	var bottomStd, bottomMean, topStd, topMean float64
+	var transitionPoint int
 
-	intermediatePointsFound := 0
-	leftHand := false
-	rightHand := false
-	leftIntermediatePoint := leftWing[len(leftWing)-1]
-	if leftIntermediatePoint > leftMean && leftIntermediatePoint < rightMean {
+	if goalpost == "left" {
+		bottomMean, bottomStd, topMean, topStd, transitionPoint = getTransitionPointData(leftWing)
 		if debugPrint {
-			fmt.Printf("intermediate point intensity: %0.4f from leftWing\n", leftIntermediatePoint)
+			fmt.Printf("leftBottom:  mean %f   std %f   leftTop: mean %f   std %f  leftTransitionPoint: %d",
+				bottomMean, bottomStd, topMean, topStd, transitionPoint)
+			prettyPrintWing("left wing:", leftWing)
 		}
-		intermediatePointsFound += 1
-		leftHand = true
 	}
 
-	rightIntermediatePoint := rightWing[0]
-	if rightIntermediatePoint > leftMean && rightIntermediatePoint < rightMean {
+	if goalpost == "right" {
+		bottomMean, bottomStd, topMean, topStd, transitionPoint = getTransitionPointData(rightWing)
 		if debugPrint {
-			fmt.Printf("intermediate point intensity: %0.4f from rightWing\n", rightIntermediatePoint)
+			fmt.Printf("rightBottom:  mean %f   std %f   rightTop: mean %f   std %f  rightTransitionPoint: %d",
+				bottomMean, bottomStd, topMean, topStd, transitionPoint)
+			prettyPrintWing("right wing:", rightWing)
 		}
-		intermediatePointsFound += 1
-		rightHand = true
 	}
 
-	var p float64
-	var pindex int
-	switch intermediatePointsFound {
-	case 0:
-		// TODO Deal with this properly
-		fmt.Println("There is no valid intermediate point")
-	case 1:
-		if leftHand {
-			if debugPrint {
-				fmt.Println("Choosing singleton lefthand intermediate point")
-			}
-			p = leftIntermediatePoint
-			edgeStats.intermediatePointIntensity = p
-			pindex = startingFrame + len(leftWing) - 1
-		}
-		if rightHand {
-			if debugPrint {
-				fmt.Println("Choosing singleton righthand intermediate point")
-			}
-			p = rightIntermediatePoint
-			edgeStats.intermediatePointIntensity = p
-			pindex = startingFrame + len(leftWing)
-		}
-	case 2:
-		// We choose the one closest to the midFlash level
-		deltaLeft := math.Abs(midFlashLevel - leftIntermediatePoint)
-		deltaRight := math.Abs(rightIntermediatePoint - midFlashLevel)
-		if deltaLeft < deltaRight {
-			if debugPrint {
-				fmt.Println("Choosing lefthand intermediate point")
-			}
-			p = leftIntermediatePoint
-			edgeStats.intermediatePointIntensity = p
-			pindex = startingFrame + len(leftWing) - 1
-		} else {
-			if debugPrint {
-				fmt.Println("Choosing righthand intermediate point")
-			}
-			p = rightIntermediatePoint
-			edgeStats.intermediatePointIntensity = p
-			pindex = startingFrame + len(leftWing)
-		}
-	default:
-		fmt.Println("Programming error: intermediate point count invalid")
-		panic("Programming error: intermediate point count invalid")
-	}
+	edgeStats.bottomStd = bottomStd
+	edgeStats.bottomMean = bottomMean
+	edgeStats.topStd = topStd
+	edgeStats.topMean = topMean
 
-	// 0.0 <= delta <= 1.0
-	delta := (rightMean - p) / (rightMean - leftMean)
+	p := fc[transitionPoint+startingIndex]
+	delta := (topMean - p) / (topMean - bottomMean)
 
-	edgeAt := float64(pindex) + delta
+	edgeAt := float64(transitionPoint+startingIndex) + delta
 	edgeStats.edgeAt = edgeAt
 
-	sigmaP := leftStd + (rightStd-leftStd)*(1.0-delta)
+	sigmaP := bottomStd + (topStd-bottomStd)*(1.0-delta)
 	pSNR := p / sigmaP
 	edgeStats.pSNR = pSNR
-	bSNR := rightMean / rightStd
+	bSNR := topMean / topStd
 	edgeStats.bSNR = bSNR
-	aSNR := leftMean / leftStd
+	aSNR := bottomMean / bottomStd
 	edgeStats.aSNR = aSNR
 
 	sigmaFrameFromRatio := delta * math.Sqrt(1.0/(bSNR*bSNR)+1.0/(aSNR*aSNR))
-	sigmaFrame := sigmaP / (rightMean - leftMean)
+	sigmaFrame := sigmaP / (topMean - bottomMean)
 
 	adjustedSigmaFrame := math.Sqrt(sigmaFrameFromRatio*sigmaFrameFromRatio + sigmaFrame*sigmaFrame)
 	edgeStats.edgeSigma = adjustedSigmaFrame
 
 	if debugPrint {
-		fmt.Printf("A: %0.4f  B: %0.4f\n", leftMean, rightMean)
-		fmt.Printf("sigmaA: %0.4f  sigmaB: %0.4f\n", leftStd, rightStd)
+		fmt.Printf("\nA: %0.4f  B: %0.4f\n", bottomMean, topMean)
+		fmt.Printf("sigmaA: %0.4f  sigmaB: %0.4f\n", bottomStd, topStd)
 		fmt.Printf("p: %0.4f  delta: %0.6f\n", p, delta)
 		fmt.Printf("edge of intermediate point: %0.6f\n", edgeAt)
 		fmt.Printf("sigmaP: %0.4f  pSNR: %0.4f\n", sigmaP, pSNR)
@@ -165,38 +182,66 @@ func extractEdgeTimeAndStats(fc []float64, startingFrame int, midFlashLevel floa
 		fmt.Printf("adjustedSigmaFrame: %0.6f\n", adjustedSigmaFrame)
 	}
 
-	// Now we deal with the D edge
-	p = rightWing[len(rightWing)-1]
-	pindex = startingFrame + len(leftWing) + len(rightWing) - 1
-	delta = (rightMean - p) / (rightMean - leftMean)
-	edgeAt = float64(pindex) + (1.0 - delta)
-	fmt.Printf("D p: %0.4f  1.0 - delta: %0.6f\n", p, 1.0-delta)
-	fmt.Printf("D edge of intermediate point: %0.6f\n", edgeAt)
 	return
 }
 
-func getFlashEdge(fc []float64, midFlashLevel float64) (leftWing, rightWing []float64) {
-	state := "accumulateLeft"
+func getLeftFlashEdge(fc []float64, midFlashLevel float64) (leftWing []float64) {
+	state := "accumulateBottom"
 
 	for i := 0; i < len(fc); i++ {
 		value := fc[i]
-		if state == "accumulateLeft" {
+		if state == "accumulateBottom" {
 			if value < midFlashLevel {
 				leftWing = append(leftWing, value)
 			} else {
-				state = "accumulateRight"
+				state = "accumulateTop"
 			}
 		}
-		if state == "accumulateRight" {
+		if state == "accumulateTop" {
 			if value >= midFlashLevel {
-				rightWing = append(rightWing, value)
+				leftWing = append(leftWing, value)
 			} else {
-				rightWing = append(rightWing, value)
 				break
 			}
 		}
 	}
-	return leftWing, rightWing
+	return leftWing
+}
+
+func getRightFlashEdge(fc []float64, midFlashLevel float64) (rightWing []float64, startingIndex int) {
+	var lastFlashBottomStart int
+	var lastFlashTopEnd int
+
+	state := "traverseRightBottom"
+	k := len(fc) - 1 // We use k to iterate backwards through the flashLightCurve
+
+	for {
+		value := fc[k]
+		if state == "traverseRightBottom" {
+			if value < midFlashLevel { // We're still in the flash off portion of the tail
+				k -= 1
+			} else {
+				state = "traverseTop"
+				lastFlashTopEnd = k // Save this because we need to know where the top of the last flash ends
+			}
+		}
+		if state == "traverseTop" {
+			if value >= midFlashLevel { // we're still in the flash on portion
+				k -= 1
+			} else {
+				state = "traverseLeftBottom"
+			}
+		}
+
+		if state == "traverseLeftBottom" {
+			//k -= FLASH_OFF_FRAME_COUNT
+			k -= 10 // TODO Make this more general - this only works if the acquisition program enforces this value
+			lastFlashBottomStart = k
+			break
+		}
+	}
+	rightWing = fc[lastFlashBottomStart : lastFlashTopEnd+1]
+	return rightWing, lastFlashBottomStart
 }
 
 func maxInSlice(data []float64) (biggest float64, index int) {
