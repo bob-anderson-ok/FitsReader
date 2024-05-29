@@ -1,12 +1,12 @@
 package main
 
 import (
+	"FITSreader/fitsio"
 	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
-	"github.com/astrogo/fitsio"
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/font"
 	"gonum.org/v1/plot/plotter"
@@ -15,6 +15,14 @@ import (
 )
 
 func showFlashLightcurve() {
+
+	n := len(myWin.lightcurve)
+	if n == 0 {
+		dialog.ShowInformation("Flash lightcurve",
+			"\n\nThere is no flash lightcurve to display.\n\n",
+			myWin.parentWindow)
+		return
+	}
 
 	buildPlot() // Writes flashLightcurve.png in current working directory
 
@@ -30,6 +38,10 @@ func showFlashLightcurve() {
 func buildPlot() {
 
 	n := len(myWin.lightcurve)
+	if n == 0 {
+		return
+	}
+
 	myPts := make(plotter.XYs, n)
 	for i := range myPts {
 		myPts[i].X = float64(i + myWin.lightCurveStartIndex)

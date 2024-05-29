@@ -1,6 +1,7 @@
 package main
 
 import (
+	"FITSreader/fitsio"
 	_ "embed"
 	"fmt"
 	"fyne.io/fyne/v2"
@@ -12,10 +13,13 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
-	"github.com/astrogo/fitsio"
+	"slices"
+
+	//"github.com/astrogo/fitsio"
 	_ "github.com/qdm12/reprint"
 	"image"
 	"image/color"
+	"log"
 	"math"
 	"os"
 	"strconv"
@@ -25,82 +29,88 @@ import (
 )
 
 type Config struct {
-	reportCount          int
-	buildLightcurve      bool
-	adjustSliders        bool
-	blackSet             bool
-	whiteSet             bool
-	lightcurve           []float64
-	lcIndices            []int
-	lightCurveStartIndex int
-	lightCurveEndIndex   int
-	displayBuffer        []byte
-	workingBuffer        []byte
-	bytesPerPixel        int
-	maxImg64             float64
-	minImg64             float32
-	maxImg32             float64
-	minImg32             float32
-	roiEntry             *dialog.FormDialog
-	widthStr             binding.String
-	heightStr            binding.String
-	roiWidth             int
-	roiHeight            int
-	roiActive            bool
-	roiChanged           bool
-	x0                   int // ROI corners
-	y0                   int
-	x1                   int
-	y1                   int
-	xJogSize             int
-	yJogSize             int
-	upButton             *widget.Button
-	downButton           *widget.Button
-	leftButton           *widget.Button
-	rightButton          *widget.Button
-	centerButton         *widget.Button
-	drawROIbutton        *widget.Button
-	roiCheckbox          *widget.Check
-	deletePathCheckbox   *widget.Check
-	fileBrowserRequested bool
-	setRoiButton         *widget.Button
-	parentWindow         fyne.Window
-	folderSelectWin      fyne.Window
-	showFolder           *dialog.FileDialog
-	folderSelect         *widget.Select
-	selectionMade        bool
-	folderSelected       string
-	imageWidth           int
-	imageHeight          int
-	App                  fyne.App
-	whiteSlider          *widget.Slider
-	blackSlider          *widget.Slider
-	autoContrastNeeded   bool
-	fileSlider           *widget.Slider
-	centerContent        *fyne.Container
-	fitsFilePaths        []string
-	fitsFolderHistory    []string
-	numFiles             int
-	waitingForFileRead   bool
-	fitsImages           []*canvas.Image
-	//imageKind            string
-	fileLabel            *widget.Label
-	timestampLabel       *canvas.Text
-	fileIndex            int
-	autoPlayEnabled      bool
-	playBackMilliseconds int64
-	currentFilePath      string
-	playDelay            time.Duration
-	primaryHDU           fitsio.HDU
-	timestamps           []string
-	metaData             [][]string
-	timestamp            string
-	loopStartIndex       int
-	loopEndIndex         int
-	hist                 []int
+	cmdLineFolder          string
+	reportCount            int
+	buildLightcurve        bool
+	leftGoalpostStats      *EdgeStats
+	rightGoalpostStats     *EdgeStats
+	adjustSliders          bool
+	blackSet               bool
+	whiteSet               bool
+	lightcurve             []float64
+	lcIndices              []int
+	lightCurveStartIndex   int
+	lightCurveEndIndex     int
+	displayBuffer          []byte
+	workingBuffer          []byte
+	bytesPerPixel          int
+	maxImg64               float64
+	minImg64               float32
+	maxImg32               float64
+	minImg32               float32
+	roiEntry               *dialog.FormDialog
+	widthStr               binding.String
+	heightStr              binding.String
+	roiWidth               int
+	roiHeight              int
+	roiActive              bool
+	roiChanged             bool
+	x0                     int // ROI corners
+	y0                     int
+	x1                     int
+	y1                     int
+	xJogSize               int
+	yJogSize               int
+	upButton               *widget.Button
+	downButton             *widget.Button
+	leftButton             *widget.Button
+	rightButton            *widget.Button
+	centerButton           *widget.Button
+	drawROIbutton          *widget.Button
+	roiCheckbox            *widget.Check
+	deletePathCheckbox     *widget.Check
+	fileBrowserRequested   bool
+	setRoiButton           *widget.Button
+	parentWindow           fyne.Window
+	folderSelectWin        fyne.Window
+	showFolder             *dialog.FileDialog
+	folderSelect           *widget.Select
+	selectionMade          bool
+	folderSelected         string
+	imageWidth             int
+	imageHeight            int
+	App                    fyne.App
+	whiteSlider            *widget.Slider
+	blackSlider            *widget.Slider
+	autoContrastNeeded     bool
+	fileSlider             *widget.Slider
+	centerContent          *fyne.Container
+	fitsFilePaths          []string
+	fitsFolderHistory      []string
+	numFiles               int
+	waitingForFileRead     bool
+	fitsImages             []*canvas.Image
+	leftGoalpostTimestamp  string
+	rightGoalpostTimestamp string
+	fileLabel              *widget.Label
+	timestampLabel         *canvas.Text
+	fileIndex              int
+	autoPlayEnabled        bool
+	playBackMilliseconds   int64
+	currentFilePath        string
+	playDelay              time.Duration
+	primaryHDU             fitsio.HDU
+	timestamps             []string
+	metaData               [][]string
+	timestamp              string
+	loopStartIndex         int
+	loopEndIndex           int
+	hist                   []int
 }
 
-const version = " 1.3.4"
+const version = " 1.3.5"
+
+const edgeTimesFileName = "edge_times.txt"
 
 //go:embed help.txt
 var helpText string
@@ -124,11 +134,17 @@ func main() {
 	myWin.fitsFolderHistory = myWin.App.Preferences().StringListWithFallback("folderHistory",
 		[]string{})
 
+	//if len(os.Args) > 1 {
+	//	if os.Args[1] == "2" || os.Args[1] == "3" {
+	//		myWin.fitsFolderHistory = []string{}
+	//		saveFolderHistory()
+	//	}
+	//}
 	if len(os.Args) > 1 {
-		if os.Args[1] == "2" || os.Args[1] == "3" {
-			myWin.fitsFolderHistory = []string{}
-			saveFolderHistory()
-		}
+		myWin.cmdLineFolder = os.Args[1]
+		fmt.Println("User gave folder to process on command line as:", myWin.cmdLineFolder)
+	} else {
+		myWin.cmdLineFolder = ""
 	}
 
 	widthStr := myWin.App.Preferences().StringWithFallback("ROIwidth", "100")
@@ -155,7 +171,7 @@ func main() {
 
 	initializeConfig(false)
 
-	w := myApp.NewWindow("IOTA FITS video player" + version)
+	w := myApp.NewWindow("IOTA FITS Utility" + version)
 	w.Resize(fyne.Size{Height: 800, Width: 1200})
 
 	myWin.parentWindow = w
@@ -195,16 +211,17 @@ func main() {
 	//}))
 
 	// This lets the user pick the white theme by putting anything at all on the command line.
-	if len(os.Args) > 1 {
-		if os.Args[1] == "1" || os.Args[1] == "3" {
-			myApp.Settings().SetTheme(&forcedVariant{Theme: theme.DefaultTheme(), variant: theme.VariantLight})
-		}
-	}
+	//if len(os.Args) > 1 {
+	//	if os.Args[1] == "1" || os.Args[1] == "3" {
+	//		myApp.Settings().SetTheme(&forcedVariant{Theme: theme.DefaultTheme(), variant: theme.VariantLight})
+	//	}
+	//}
 
 	leftItem.Add(layout.NewSpacer())
 
-	leftItem.Add(widget.NewButton("Build flash lightcurve", func() { buildFlashLightcurve() }))
-	leftItem.Add(widget.NewButton("Timestamp FITS files", func() { addTimestampsToFitsFiles() }))
+	//leftItem.Add(widget.NewButton("Build flash lightcurve", func() { buildFlashLightcurve() }))
+	leftItem.Add(widget.NewButton("Show flash lightcurve", func() { showFlashLightcurve() }))
+	//leftItem.Add(widget.NewButton("Timestamp FITS files", func() { addTimestampsToFitsFiles() }))
 
 	leftItem.Add(layout.NewSpacer())
 	myWin.roiCheckbox = widget.NewCheck("Apply ROI", applyRoi)
@@ -286,8 +303,17 @@ func main() {
 	myWin.centerContent = centerContent
 	w.SetContent(myWin.centerContent)
 	w.CenterOnScreen()
+	go delayedExecution()
+	w.ShowAndRun() // This blocks. Place no other code after this call.
+}
 
-	w.ShowAndRun()
+func delayedExecution() {
+	time.Sleep(time.Second * 1)
+	//dialog.ShowInformation("Startup message:", "\nWe're awake now.\n", myWin.parentWindow)
+	if myWin.cmdLineFolder != "" {
+		readEdgeTimeFile(myWin.cmdLineFolder)
+		processFitsFolderPickedFromHistory(myWin.cmdLineFolder)
+	}
 }
 
 func doXaxis(img, grayImage image.Image, xmax, y int) {
@@ -351,6 +377,9 @@ func buildFlashLightcurve() {
 		myWin.lightCurveEndIndex = myWin.numFiles - 1
 	}
 	runLightcurveAcquisition()
+	addTimestampsToFitsFiles()
+	myWin.leftGoalpostTimestamp = ""
+	myWin.rightGoalpostTimestamp = ""
 }
 
 func runLightcurveAcquisition() {
@@ -372,14 +401,136 @@ func runLightcurveAcquisition() {
 	playLightcurveForward()
 	myWin.buildLightcurve = false
 
-	showFlashLightcurve()
+	//showFlashLightcurve()
 	findFlashEdges()
 
 	//fmt.Println("\nEnd of build lightcurve")
 }
 
 func addTimestampsToFitsFiles() {
-	fmt.Println("Add timestamps to fits files")
+	//msg := fmt.Sprintf("Add timestamps to fits files entered.")
+	//dialog.ShowInformation("Add timestamps report:", msg, myWin.parentWindow)
+	if myWin.leftGoalpostTimestamp == "" || myWin.rightGoalpostTimestamp == "" {
+		msg := fmt.Sprintf("There are no flash goalpost timestamps available.")
+		dialog.ShowInformation("Add timestamps report:", msg, myWin.parentWindow)
+	}
+	fmt.Printf("\n left goalpost edge at %0.6f\n", myWin.leftGoalpostStats.edgeAt)
+	fmt.Printf("right goalpost edge at %0.6f\n", myWin.rightGoalpostStats.edgeAt)
+
+	leftFlashTime, err := time.Parse(time.RFC3339, myWin.leftGoalpostTimestamp)
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Println(" left goalpost occurred @", leftFlashTime)
+	}
+
+	rightFlashTime, err := time.Parse(time.RFC3339, myWin.rightGoalpostTimestamp)
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Println("right goalpost occurred @", rightFlashTime)
+	}
+
+	deltaFlashTime := rightFlashTime.Sub(leftFlashTime)
+	//fmt.Println(deltaFlashTime.Nanoseconds())
+	frameTime := float64(deltaFlashTime.Nanoseconds()) / 1_000_000_000 / (myWin.rightGoalpostStats.edgeAt - myWin.leftGoalpostStats.edgeAt)
+	fmt.Printf("frame time: %0.6f\n", frameTime)
+
+	pwmUncertainty := 0.000032 / 2 // This is correct only for the IOTA-GFT running the pwm at 31.36 kHz
+	myWin.leftGoalpostStats.edgeSigma *= frameTime
+	myWin.leftGoalpostStats.edgeSigma += pwmUncertainty
+	myWin.rightGoalpostStats.edgeSigma *= frameTime
+	myWin.rightGoalpostStats.edgeSigma += pwmUncertainty
+	fmt.Printf(" left edge time uncertainty: %0.6f\n", myWin.leftGoalpostStats.edgeSigma)
+	fmt.Printf("right edge time uncertainty: %0.6f\n", myWin.rightGoalpostStats.edgeSigma)
+
+	t0 := leftFlashTime.Add(-time.Nanosecond * time.Duration(int(math.Round(myWin.leftGoalpostStats.edgeAt*frameTime))))
+	myWin.timestamps = make([]string, 0)
+	for i := range myWin.lightcurve {
+		tn := t0.Add(time.Nanosecond * time.Duration(float64(i)*frameTime))
+		tsStr := tn.Format("2006-01-02T15:04:05.000000")
+		myWin.timestamps = append(myWin.timestamps, tsStr)
+		//fmt.Println(i, tsStr)
+	}
+
+	i := 0
+	for _, frameFile := range myWin.fitsFilePaths {
+		f, err := os.OpenFile(frameFile, os.O_RDWR, 0644)
+		if err != nil {
+			log.Fatalf("could not open file: %+v", err)
+		}
+
+		outFile, err := fitsio.Create(f)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		fits, err := fitsio.Open(f)
+
+		if err != nil {
+			fmt.Printf("\nCould not open FITS file: %+v\n", err)
+			return
+		}
+
+		hdu := fits.HDU(0)
+		//var dateObsCard []fitsio.Card
+		dateObsCard := hdu.Header().Get("DATE-OBS")
+		cardList := hdu.(*fitsio.PrimaryHDU).Hdr.Cards
+
+		if dateObsCard == nil {
+			// Make a DATE-OBS card. Put it in a slice so that we can use slice.Concat()
+			dateObsCard = new(fitsio.Card)
+			dateObsCard.Name = "DATE-OBS"
+			dateObsCard.Value = myWin.timestamps[i]
+			dateObsCard.Comment = "GPS: IotaGFT and Iota FITS reader"
+			dateObsCardSlice := make([]fitsio.Card, 1)
+			dateObsCardSlice[0] = *dateObsCard
+
+			// We will form a complete new card list from the old one by inserting the new DATE-OBS
+			// card immediately before the first COMMENT card, or the END card, whichever comes first.
+			var newCardList []fitsio.Card
+			for i, card := range cardList {
+				if card.Name == "COMMENT" || card.Name == "END" {
+					newCardList = cardList[0:i]
+					newCardList = slices.Concat(newCardList, dateObsCardSlice)
+					newCardList = slices.Concat(newCardList, cardList[i:])
+					break
+				}
+			}
+
+			// Replace the old cards with the new set, now augmented with a DATE-OBS card.
+			hdu.(*fitsio.PrimaryHDU).Hdr.Cards = newCardList
+		} else {
+			hdu.Header().Set("DATE-OBS", myWin.timestamps[i], "GPS: IotaGFT and Iota FITS reader")
+		}
+
+		// It is essential to reset the 'write point' to the beginning of the file,
+		// otherwise the outFile.Write(hdu) will simply append to the file (and be invisible to fits readers)
+		_, err = f.Seek(0, 0)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		err = outFile.Write(hdu)
+		if err != nil {
+			fmt.Println(err)
+		}
+
+		err = outFile.Close()
+		if err != nil {
+			fmt.Println(err)
+		}
+		i += 1
+
+		f.Close()
+
+		_ = fits.Close()
+	}
+	msg := fmt.Sprintf("\nAll timestamps have been added to the file.\n\n"+
+		"left edge time uncertainty estimate: %0.6f seconds\n\n"+
+		"right edge uncertainty estimate: %0.6f seconds\n\n",
+		myWin.leftGoalpostStats.edgeSigma, myWin.rightGoalpostStats.edgeSigma)
+	dialog.ShowInformation("Add timestamps report:", msg, myWin.parentWindow)
 }
 
 func initializeConfig(running bool) {
@@ -395,6 +546,7 @@ func initializeConfig(running bool) {
 		myWin.roiCheckbox.SetChecked(false)
 	}
 
+	myWin.lightcurve = make([]float64, 0)
 	myWin.displayBuffer = nil
 	myWin.workingBuffer = nil
 	myWin.bytesPerPixel = 0
@@ -509,7 +661,7 @@ func openFitsFile(fitsFilePath string) *fitsio.File {
 
 	fitsHandle, err3 := fitsio.Open(fileHandle)
 	if err3 != nil {
-		panic(err3)
+		fmt.Println(err3)
 	}
 
 	return fitsHandle
@@ -541,6 +693,7 @@ func initializeImages() {
 	makeDisplayBuffer(myWin.imageWidth, myWin.imageHeight)
 
 	myWin.fileSlider.SetValue(0)
+	myWin.lightcurve = make([]float64, 0)
 }
 
 func histogram(sample []byte, stride, cornerRow, cornerCol, size int) (hist []int) {

@@ -5,7 +5,7 @@
 
     The left slider sets minimum black level. The right slider sets maximum white level.
 
-    If you set the min black above the max white, the image will be inverted - some
+    If you set the minF black above the maxF white, the image will be inverted - some
     people may find this easier to look at.
 
     Looping can be done backwards as well as (the usual) forwards.

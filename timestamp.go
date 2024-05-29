@@ -13,13 +13,13 @@ func findFlashEdges() {
 	minFlashLevel, _ := minInSlice(fc)
 	midFlashLevel := (maxFlashLevel + minFlashLevel) / 2.0
 
-	stats1 := new(EdgeStats)
-	extractEdgeTimeAndStats(fc, "left", midFlashLevel, stats1)
-	fmt.Printf("first edge at %0.6f\n", stats1.edgeAt)
+	myWin.leftGoalpostStats = new(EdgeStats)
+	extractEdgeTimeAndStats(fc, "left", midFlashLevel, myWin.leftGoalpostStats)
+	fmt.Printf("first edge at %0.6f\n", myWin.leftGoalpostStats.edgeAt)
 
-	stats2 := new(EdgeStats)
-	extractEdgeTimeAndStats(fc, "right", midFlashLevel, stats2)
-	fmt.Printf("second edge at %0.6f\n", stats2.edgeAt)
+	myWin.rightGoalpostStats = new(EdgeStats)
+	extractEdgeTimeAndStats(fc, "right", midFlashLevel, myWin.rightGoalpostStats)
+	fmt.Printf("second edge at %0.6f\n", myWin.rightGoalpostStats.edgeAt)
 }
 
 type EdgeStats struct {
@@ -234,8 +234,9 @@ func getRightFlashEdge(fc []float64, midFlashLevel float64) (rightWing []float64
 		}
 
 		if state == "traverseLeftBottom" {
-			//k -= FLASH_OFF_FRAME_COUNT
-			k -= 10 // TODO Make this more general - this only works if the acquisition program enforces this value
+			// There should reliably be at least 10 baseline values to the left of the righthand goalpost
+			// flash beginning, so this is a safe calculation.
+			k -= 10
 			lastFlashBottomStart = k
 			break
 		}

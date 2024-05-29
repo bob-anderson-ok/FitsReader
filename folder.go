@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
@@ -10,10 +11,11 @@ import (
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
 	"os"
+	"strings"
 	"time"
 )
 
-func processFitsFolderSelection(path fyne.ListableURI, err error) {
+func processFitsFolderSelectedByFolderDialog(path fyne.ListableURI, err error) {
 	myWin.showFolder.Hide()
 	if err != nil {
 		fmt.Println(fmt.Errorf("%w\n", err))
@@ -21,6 +23,8 @@ func processFitsFolderSelection(path fyne.ListableURI, err error) {
 	}
 	if path != nil {
 		//fmt.Printf("folder selected: %s\n", path)
+		myWin.leftGoalpostTimestamp = ""
+		myWin.rightGoalpostTimestamp = ""
 		initializeConfig(true)
 
 		myWin.App.Preferences().SetString("lastFitsFolder", path.Path())
@@ -67,6 +71,10 @@ func processFitsFolderSelection(path fyne.ListableURI, err error) {
 	}
 	if len(myWin.fitsFilePaths) > 0 {
 		displayFitsImage()
+		readEdgeTimeFile(path.Path())
+		if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
+			buildFlashLightcurve()
+		}
 	}
 }
 
@@ -88,7 +96,7 @@ func openNewFolderDialog(lastFitsFolderStr string) {
 	lastFitsFolderStr = myWin.App.Preferences().StringWithFallback("lastFitsFolder", "")
 
 	showFolder := dialog.NewFolderOpen(
-		func(path fyne.ListableURI, err error) { processFitsFolderSelection(path, err) },
+		func(path fyne.ListableURI, err error) { processFitsFolderSelectedByFolderDialog(path, err) },
 		myWin.parentWindow,
 	)
 
@@ -127,7 +135,7 @@ func pathExists(path string) bool {
 	return err == nil
 }
 
-func processFitsFolderPath(path string) {
+func processFitsFolderPickedFromHistory(path string) {
 	//fmt.Printf("folder selected: %s\n", path)
 	initializeConfig(true)
 
@@ -156,6 +164,9 @@ func processFitsFolderPath(path string) {
 		//myWin.autoStretchCheckbox.SetChecked(true)
 		displayFitsImage()
 	}
+	if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
+		buildFlashLightcurve()
+	}
 }
 
 func openFileBrowser() {
@@ -180,6 +191,52 @@ func processFolderSelectionClosed() {
 	return
 }
 
+func readEdgeTimeFile(path string) {
+	var onTimes []string
+
+	myWin.leftGoalpostTimestamp = ""
+	myWin.leftGoalpostTimestamp = ""
+
+	filePath := path + "-" + edgeTimesFileName
+
+	if _, err := os.Stat(filePath); errors.Is(err, os.ErrNotExist) {
+		msg := fmt.Sprintf("Could not find edge time file @ %s\n", filePath)
+		dialog.ShowInformation("Edge time file error:", msg, myWin.parentWindow)
+	} else {
+		//msg := fmt.Sprintf("edge time file found at: %s\n", filePath)
+		//dialog.ShowInformation("Edge time file report:", msg, myWin.parentWindow)
+
+		content, err := os.ReadFile(filePath) // Grab all the file in one gulp of []byte
+		if err != nil {
+			msg := fmt.Sprintf("Attempt to read edge time file gave error: %s\n", err)
+			dialog.ShowInformation("Edge time file error:", msg, myWin.parentWindow)
+		} else {
+			lines := string(content) // Convert []byte to string
+			bob := strings.Split(lines, "\r\n")
+
+			for _, line := range bob {
+				if !strings.Contains(line, "Z") {
+					line += "Z" // Add a terminating Z if the timestamp did not already indicate that it was a UTC value
+				}
+				if strings.Contains(line, "on") {
+					onLineParts := strings.Split(line, "on  ")
+					onTimes = append(onTimes, onLineParts[1])
+				}
+			}
+			if len(onTimes) < 2 {
+				msg := fmt.Sprintln("Less than 2 flash-on times found in edge times file.")
+				dialog.ShowInformation("Edge time file error:", msg, myWin.parentWindow)
+			} else {
+				myWin.leftGoalpostTimestamp = onTimes[0]
+				myWin.rightGoalpostTimestamp = onTimes[len(onTimes)-1]
+				//msg := fmt.Sprintf("left goalpost occurred @  %s\n\n", myWin.leftGoalpostTimestamp)
+				//msg += fmt.Sprintf("right goalpost occurred @  %s\n\n", myWin.rightGoalpostTimestamp)
+				//dialog.ShowInformation("Goalpost timestamp report:", msg, myWin.parentWindow)
+			}
+		}
+	}
+}
+
 func processFolderSelection(path string) {
 
 	if myWin.deletePathCheckbox.Checked {
@@ -195,6 +252,13 @@ func processFolderSelection(path string) {
 	}
 	myWin.selectionMade = true
 	myWin.folderSelectWin.Close()
+
+	myWin.leftGoalpostTimestamp = ""
+	myWin.rightGoalpostTimestamp = ""
+	readEdgeTimeFile(path)
+	if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
+		buildFlashLightcurve()
+	}
 }
 
 func saveFolderHistory() {
@@ -238,8 +302,6 @@ func folderHistorySelect() {
 
 func chooseFitsFolder() {
 
-	//var lastFitsFolderStr string
-
 	folderHistorySelect() // Build and open the selection dialog
 
 	for { // Wait for a selection to be made in an infinite loop or Browser open button clicked
@@ -250,11 +312,6 @@ func chooseFitsFolder() {
 		}
 	}
 
-	if myWin.selectionMade { // User clicked on an entry in the selection list
-		// This Close() will invoke processFolderSelection()
-		myWin.folderSelectWin.Close()
-	}
-
 	// If the user just closed the folder selection window or selected a blank line, "" is returned.
 	if myWin.folderSelected == "" && !myWin.fileBrowserRequested {
 		return
@@ -263,7 +320,8 @@ func chooseFitsFolder() {
 	myWin.fileBrowserRequested = false
 
 	if myWin.folderSelected != "" {
-		processFitsFolderPath(myWin.folderSelected)
+		myWin.lightcurve = make([]float64, 0)
+		processFitsFolderPickedFromHistory(myWin.folderSelected)
 	}
 
 }
