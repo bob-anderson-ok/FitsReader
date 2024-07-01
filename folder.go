@@ -70,11 +70,14 @@ func processFitsFolderSelectedByFolderDialog(path fyne.ListableURI, err error) {
 		myWin.fileSlider.SetValue(0)
 	}
 	if len(myWin.fitsFilePaths) > 0 {
-		displayFitsImage()
-		readEdgeTimeFile(path.Path())
-		if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
-			buildFlashLightcurve()
+		if !alreadyHasIotaTimestamps(processedByIotaUtilities) && myWin.addFlashTimestampsCheckbox.Checked {
+			displayFitsImage()
+			readEdgeTimeFile(path.Path())
+			if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
+				buildFlashLightcurve()
+			}
 		}
+		displayFitsImage()
 	}
 }
 
@@ -197,7 +200,7 @@ func readEdgeTimeFile(path string) {
 	myWin.leftGoalpostTimestamp = ""
 	myWin.leftGoalpostTimestamp = ""
 
-	filePath := path + "-" + edgeTimesFileName
+	filePath := path + "/" + edgeTimesFileName
 
 	if _, err := os.Stat(filePath); errors.Is(err, os.ErrNotExist) {
 		msg := fmt.Sprintf("Could not find edge time file @ %s\n", filePath)
@@ -212,7 +215,7 @@ func readEdgeTimeFile(path string) {
 			dialog.ShowInformation("Edge time file error:", msg, myWin.parentWindow)
 		} else {
 			lines := string(content) // Convert []byte to string
-			bob := strings.Split(lines, "\r\n")
+			bob := strings.Split(lines, "\n")
 
 			for _, line := range bob {
 				if !strings.Contains(line, "Z") {
@@ -253,11 +256,13 @@ func processFolderSelection(path string) {
 	myWin.selectionMade = true
 	myWin.folderSelectWin.Close()
 
-	myWin.leftGoalpostTimestamp = ""
-	myWin.rightGoalpostTimestamp = ""
-	readEdgeTimeFile(path)
-	if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
-		buildFlashLightcurve()
+	if myWin.addFlashTimestampsCheckbox.Checked {
+		myWin.leftGoalpostTimestamp = ""
+		myWin.rightGoalpostTimestamp = ""
+		readEdgeTimeFile(path)
+		if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
+			buildFlashLightcurve()
+		}
 	}
 }
 
