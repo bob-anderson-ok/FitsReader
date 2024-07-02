@@ -98,6 +98,10 @@ func addPathToHistory(path string) {
 func openNewFolderDialog(lastFitsFolderStr string) {
 	lastFitsFolderStr = myWin.App.Preferences().StringWithFallback("lastFitsFolder", "")
 
+	if myWin.cmdLineFolder != "" {
+		lastFitsFolderStr = myWin.cmdLineFolder
+	}
+
 	showFolder := dialog.NewFolderOpen(
 		func(path fyne.ListableURI, err error) { processFitsFolderSelectedByFolderDialog(path, err) },
 		myWin.parentWindow,

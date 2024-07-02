@@ -1,6 +1,6 @@
 
     This program is both a general purpose "viewer" and a utility to process
-    a "flash timed" recording produced by the SharCap/IotaGFTapp duo for the
+    a "flash timed" recording produced by the SharpCap/IotaGFTapp duo for the
     purpose of inserting GPS accurate timestamps in each fits file.
 
     If enable-auto-timestamp-insertion is checked, opening a fits folder produced by

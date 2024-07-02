@@ -109,7 +109,7 @@ type Config struct {
 	hist                       []int
 }
 
-const version = " 1.3.9"
+const version = " 1.4.0"
 
 const edgeTimesFileName = "FLASH_EDGE_TIMES.txt"
 
@@ -226,7 +226,8 @@ func main() {
 	//leftItem.Add(widget.NewButton("Build flash lightcurve", func() { buildFlashLightcurve() }))
 	leftItem.Add(widget.NewButton("Show flash lightcurve", func() { showFlashLightcurve() }))
 	myWin.addFlashTimestampsCheckbox = widget.NewCheck("enable auto-timestamp-insertion", addFlashTimestamps)
-	myWin.addFlashTimestampsCheckbox.SetChecked(true)
+	checkState := myWin.App.Preferences().BoolWithFallback("EnableAutoTimestampInsertion", true)
+	myWin.addFlashTimestampsCheckbox.SetChecked(checkState)
 	leftItem.Add(myWin.addFlashTimestampsCheckbox)
 	//leftItem.Add(widget.NewButton("Timestamp FITS files", func() { addTimestampsToFitsFiles() }))
 
@@ -443,7 +444,7 @@ func alreadyHasIotaTimestamps(processedStr string) bool {
 }
 
 func addFlashTimestamps(_ bool) {
-
+	myWin.App.Preferences().SetBool("EnableAutoTimestampInsertion", myWin.addFlashTimestampsCheckbox.Checked)
 }
 
 func addTimestampsToFitsFiles() {
