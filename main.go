@@ -109,7 +109,7 @@ type Config struct {
 	hist                       []int
 }
 
-const version = " 1.4.0"
+const version = " 1.4.1"
 
 const edgeTimesFileName = "FLASH_EDGE_TIMES.txt"
 
@@ -318,10 +318,15 @@ func main() {
 func delayedExecution() {
 	time.Sleep(time.Second * 1)
 	if myWin.cmdLineFolder != "" {
-		dialog.ShowInformation("New FITS file available for flash timestamp insertion:",
-			fmt.Sprintf(
-				"\n\n%s  is available.\n\nIf auto-timestamp-insertion is checked,\nopening the file will"+
-					" trigger the timestamp insertion process.\n\n", myWin.cmdLineFolder), myWin.parentWindow)
+		if myWin.addFlashTimestampsCheckbox.Checked {
+			myWin.lightcurve = make([]float64, 0)
+			processChosenFolderString(myWin.cmdLineFolder)
+		} else {
+			dialog.ShowInformation("New FITS file available for flash timestamp insertion:",
+				fmt.Sprintf(
+					"\n\n%s  is available.\n\nIf auto-timestamp-insertion is checked,\nopening the file will"+
+						" trigger the timestamp insertion process.\n\n", myWin.cmdLineFolder), myWin.parentWindow)
+		}
 
 	}
 	//dialog.ShowInformation("Startup message:", "\nWe're awake now.\n", myWin.parentWindow)

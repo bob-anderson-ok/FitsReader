@@ -21,15 +21,81 @@ func processFitsFolderSelectedByFolderDialog(path fyne.ListableURI, err error) {
 		fmt.Println(fmt.Errorf("%w\n", err))
 		return
 	}
+	processChosenListableURI(path)
+}
+
+func processChosenListableURI(path fyne.ListableURI) {
 	if path != nil {
+		processChosenFolderString(path.Path())
+		////fmt.Printf("folder selected: %s\n", path)
+		//myWin.leftGoalpostTimestamp = ""
+		//myWin.rightGoalpostTimestamp = ""
+		//initializeConfig(true)
+		//
+		//myWin.App.Preferences().SetString("lastFitsFolder", path.Path())
+		//
+		//myWin.fitsFilePaths = getFitsFilenames(path.Path())
+		//if len(myWin.fitsFilePaths) == 0 {
+		//	dialog.ShowInformation("Oops",
+		//		"No .fits files were found there!",
+		//		myWin.parentWindow,
+		//	)
+		//	return
+		//}
+		//
+		//folderToLookFor := path.Path()
+		//addPathToHistory(folderToLookFor) // ... only adds path if not already there
+		//
+		//// A 'tidy' func that removes invalid entries: ones that don't exist or non-directory
+		//// This takes care of cases where the user moved or deleted a folder but the path
+		//// is still present in the history.
+		//var tidyFolderHistory []string
+		//for _, folderToCheck := range myWin.fitsFolderHistory {
+		//	if pathExists(folderToCheck) {
+		//		if isDirectory(folderToCheck) {
+		//			tidyFolderHistory = append(tidyFolderHistory, folderToCheck)
+		//		} else {
+		//			continue
+		//		}
+		//	} else {
+		//		continue
+		//	}
+		//}
+		//myWin.fitsFolderHistory = tidyFolderHistory
+		//saveFolderHistory()
+		//
+		//myWin.fileIndex = 0
+		//myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
+		//myWin.fitsImages = []*canvas.Image{}
+		//myWin.timestamps = []string{}
+		//myWin.metaData = [][]string{}
+		//myWin.fileIndex = 0
+		//enableRoiControls()
+		//initializeImages()
+		//myWin.fileSlider.SetValue(0)
+	}
+	//if len(myWin.fitsFilePaths) > 0 {
+	//	if !alreadyHasIotaTimestamps(processedByIotaUtilities) && myWin.addFlashTimestampsCheckbox.Checked {
+	//		displayFitsImage()
+	//		readEdgeTimeFile(path.Path())
+	//		if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
+	//			buildFlashLightcurve()
+	//		}
+	//	}
+	//	displayFitsImage()
+	//}
+}
+
+func processChosenFolderString(path string) {
+	if path != "" {
 		//fmt.Printf("folder selected: %s\n", path)
 		myWin.leftGoalpostTimestamp = ""
 		myWin.rightGoalpostTimestamp = ""
 		initializeConfig(true)
 
-		myWin.App.Preferences().SetString("lastFitsFolder", path.Path())
+		myWin.App.Preferences().SetString("lastFitsFolder", path)
 
-		myWin.fitsFilePaths = getFitsFilenames(path.Path())
+		myWin.fitsFilePaths = getFitsFilenames(path)
 		if len(myWin.fitsFilePaths) == 0 {
 			dialog.ShowInformation("Oops",
 				"No .fits files were found there!",
@@ -38,7 +104,7 @@ func processFitsFolderSelectedByFolderDialog(path fyne.ListableURI, err error) {
 			return
 		}
 
-		folderToLookFor := path.Path()
+		folderToLookFor := path
 		addPathToHistory(folderToLookFor) // ... only adds path if not already there
 
 		// A 'tidy' func that removes invalid entries: ones that don't exist or non-directory
@@ -72,7 +138,7 @@ func processFitsFolderSelectedByFolderDialog(path fyne.ListableURI, err error) {
 	if len(myWin.fitsFilePaths) > 0 {
 		if !alreadyHasIotaTimestamps(processedByIotaUtilities) && myWin.addFlashTimestampsCheckbox.Checked {
 			displayFitsImage()
-			readEdgeTimeFile(path.Path())
+			readEdgeTimeFile(path)
 			if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
 				buildFlashLightcurve()
 			}
