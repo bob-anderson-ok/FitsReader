@@ -270,7 +270,7 @@ func readEdgeTimeFile(path string) {
 	myWin.leftGoalpostTimestamp = ""
 	myWin.leftGoalpostTimestamp = ""
 
-	filePath := path + "/" + edgeTimesFileName
+	filePath := path + "\\" + edgeTimesFileName
 
 	if _, err := os.Stat(filePath); errors.Is(err, os.ErrNotExist) {
 		msg := fmt.Sprintf("Could not find edge time file @ %s\n", filePath)
