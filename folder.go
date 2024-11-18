@@ -15,6 +15,11 @@ import (
 	"time"
 )
 
+func changeFolderSeparatorToBackslash(path string) string {
+	windowsPath := strings.Replace(path, "/", "\\", -1)
+	return windowsPath
+}
+
 func processFitsFolderSelectedByFolderDialog(path fyne.ListableURI, err error) {
 	myWin.showFolder.Hide()
 	if err != nil {
@@ -26,64 +31,9 @@ func processFitsFolderSelectedByFolderDialog(path fyne.ListableURI, err error) {
 
 func processChosenListableURI(path fyne.ListableURI) {
 	if path != nil {
-		processChosenFolderString(path.Path())
-		////fmt.Printf("folder selected: %s\n", path)
-		//myWin.leftGoalpostTimestamp = ""
-		//myWin.rightGoalpostTimestamp = ""
-		//initializeConfig(true)
-		//
-		//myWin.App.Preferences().SetString("lastFitsFolder", path.Path())
-		//
-		//myWin.fitsFilePaths = getFitsFilenames(path.Path())
-		//if len(myWin.fitsFilePaths) == 0 {
-		//	dialog.ShowInformation("Oops",
-		//		"No .fits files were found there!",
-		//		myWin.parentWindow,
-		//	)
-		//	return
-		//}
-		//
-		//folderToLookFor := path.Path()
-		//addPathToHistory(folderToLookFor) // ... only adds path if not already there
-		//
-		//// A 'tidy' func that removes invalid entries: ones that don't exist or non-directory
-		//// This takes care of cases where the user moved or deleted a folder but the path
-		//// is still present in the history.
-		//var tidyFolderHistory []string
-		//for _, folderToCheck := range myWin.fitsFolderHistory {
-		//	if pathExists(folderToCheck) {
-		//		if isDirectory(folderToCheck) {
-		//			tidyFolderHistory = append(tidyFolderHistory, folderToCheck)
-		//		} else {
-		//			continue
-		//		}
-		//	} else {
-		//		continue
-		//	}
-		//}
-		//myWin.fitsFolderHistory = tidyFolderHistory
-		//saveFolderHistory()
-		//
-		//myWin.fileIndex = 0
-		//myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
-		//myWin.fitsImages = []*canvas.Image{}
-		//myWin.timestamps = []string{}
-		//myWin.metaData = [][]string{}
-		//myWin.fileIndex = 0
-		//enableRoiControls()
-		//initializeImages()
-		//myWin.fileSlider.SetValue(0)
+		myWin.folderSelected = changeFolderSeparatorToBackslash(path.Path())
+		processChosenFolderString(myWin.folderSelected)
 	}
-	//if len(myWin.fitsFilePaths) > 0 {
-	//	if !alreadyHasIotaTimestamps(processedByIotaUtilities) && myWin.addFlashTimestampsCheckbox.Checked {
-	//		displayFitsImage()
-	//		readEdgeTimeFile(path.Path())
-	//		if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
-	//			buildFlashLightcurve()
-	//		}
-	//	}
-	//	displayFitsImage()
-	//}
 }
 
 func processChosenFolderString(path string) {
@@ -136,7 +86,9 @@ func processChosenFolderString(path string) {
 		myWin.fileSlider.SetValue(0)
 	}
 	if len(myWin.fitsFilePaths) > 0 {
-		if !alreadyHasIotaTimestamps(processedByIotaUtilities) && myWin.addFlashTimestampsCheckbox.Checked {
+		//if !alreadyHasIotaTimestamps(processedByIotaUtilities) && myWin.addFlashTimestampsCheckbox.Checked {
+		if myWin.addFlashTimestampsCheckbox.Checked {
+			//if true {
 			displayFitsImage()
 			readEdgeTimeFile(path)
 			if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
@@ -222,6 +174,7 @@ func processFitsFolderPickedFromHistory(path string) {
 		)
 		return
 	}
+	myWin.folderSelected = path
 	myWin.fileIndex = 0
 	myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
 	//fmt.Printf("%d fits files were found.\n", len(myWin.fitsFilePaths))
@@ -234,10 +187,14 @@ func processFitsFolderPickedFromHistory(path string) {
 	myWin.fileSlider.SetValue(0)
 
 	if len(myWin.fitsFilePaths) > 0 {
-		//myWin.autoStretchCheckbox.SetChecked(true)
 		displayFitsImage()
 	}
-	if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
+
+	// New policy - never redo the timestamps on folders that have already been processed
+	//if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
+	//	buildFlashLightcurve()
+	//}
+	if myWin.addFlashTimestampsCheckbox.Checked {
 		buildFlashLightcurve()
 	}
 }
@@ -261,16 +218,22 @@ func removePath(paths []string, path string) []string {
 
 func processFolderSelectionClosed() {
 	myWin.folderSelectWin.Close()
+	myWin.selectionMade = true
 	return
 }
 
 func readEdgeTimeFile(path string) {
 	var onTimes []string
+	var filePath string
 
 	myWin.leftGoalpostTimestamp = ""
 	myWin.leftGoalpostTimestamp = ""
 
-	filePath := path + "\\" + edgeTimesFileName
+	if strings.HasSuffix(path, "\\") {
+		filePath = path + edgeTimesFileName
+	} else {
+		filePath = path + "\\" + edgeTimesFileName
+	}
 
 	if _, err := os.Stat(filePath); errors.Is(err, os.ErrNotExist) {
 		msg := fmt.Sprintf("Could not find edge time file @ %s\n", filePath)
@@ -363,7 +326,7 @@ func folderHistorySelect() {
 	topLine := container.NewHBox(
 		deleteCheckbox,
 		widget.NewButton("Open file browser", func() {
-			openFileBrowser() // This does not open a browser, just sets a flag
+			openFileBrowser()
 		}),
 		layout.NewSpacer())
 	ctr := container.NewVBox(topLine, selector)

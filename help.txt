@@ -3,10 +3,15 @@
     a "flash timed" recording produced by the SharpCap/IotaGFTapp duo for the
     purpose of inserting GPS accurate timestamps in each fits file.
 
-    If enable-auto-timestamp-insertion is checked, opening a fits folder produced by
-    the SharpCap/IotaGFTapp duo will be automatically timestamp-insertion-processed.
+    If enable-auto-timestamp-insertion is checked, the fits folder produced by
+    the SharpCap/IotaGFTapp duo (and sent as a command line argument at the end
+    of the capture sequence) will be automatically timestamp-insertion-processed.
 
-    Timestamp insertion will only occur once.
+    Timestamp insertion can be safely repeated by clicking on the "Do timestamp insertion"
+    button. This process shows a plot of the flash lightcurve. It is good practice to
+    examine this plot to verify that valid transition points are present at the
+    flash edges - that is evidence that the flash intensity was properly
+    set, a necessity to achieve GPS accurate timestamps.
 
     The vertical sliders at the right control black and white image levels for
     contrast enhancement. The program applies an initial setting pair by analyzing

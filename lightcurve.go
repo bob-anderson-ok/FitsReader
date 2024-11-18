@@ -18,10 +18,8 @@ func showFlashLightcurve() {
 
 	n := len(myWin.lightcurve)
 	if n == 0 {
-		dialog.ShowInformation("Flash lightcurve",
-			"\n\nThere is no flash lightcurve to display.\n\n",
-			myWin.parentWindow)
-		return
+		readEdgeTimeFile(myWin.folderSelected)
+		buildFlashLightcurve()
 	}
 
 	buildPlot() // Writes flashLightcurve.png in current working directory

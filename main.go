@@ -109,7 +109,7 @@ type Config struct {
 	hist                       []int
 }
 
-const version = " 1.4.2"
+const version = " 1.4.3"
 
 const edgeTimesFileName = "FLASH_EDGE_TIMES.txt"
 
@@ -136,13 +136,6 @@ func main() {
 
 	myWin.fitsFolderHistory = myWin.App.Preferences().StringListWithFallback("folderHistory",
 		[]string{})
-
-	//if len(os.Args) > 1 {
-	//	if os.Args[1] == "2" || os.Args[1] == "3" {
-	//		myWin.fitsFolderHistory = []string{}
-	//		saveFolderHistory()
-	//	}
-	//}
 
 	if len(os.Args) > 1 {
 		myWin.cmdLineFolder = os.Args[1]
@@ -224,7 +217,7 @@ func main() {
 	leftItem.Add(layout.NewSpacer())
 
 	//leftItem.Add(widget.NewButton("Build flash lightcurve", func() { buildFlashLightcurve() }))
-	leftItem.Add(widget.NewButton("Show flash lightcurve", func() { showFlashLightcurve() }))
+	leftItem.Add(widget.NewButton("Do timestamp insertion", func() { showFlashLightcurve() }))
 	myWin.addFlashTimestampsCheckbox = widget.NewCheck("enable auto-timestamp-insertion", addFlashTimestamps)
 	checkState := myWin.App.Preferences().BoolWithFallback("EnableAutoTimestampInsertion", true)
 	myWin.addFlashTimestampsCheckbox.SetChecked(checkState)
@@ -456,8 +449,8 @@ func addTimestampsToFitsFiles() {
 	//msg := fmt.Sprintf("Add timestamps to fits files entered.")
 	//dialog.ShowInformation("Add timestamps report:", msg, myWin.parentWindow)
 	if myWin.leftGoalpostTimestamp == "" || myWin.rightGoalpostTimestamp == "" {
-		msg := fmt.Sprintf("There are no flash goalpost timestamps available.")
-		dialog.ShowInformation("Add timestamps report:", msg, myWin.parentWindow)
+		//msg := fmt.Sprintf("There are no flash goalpost timestamps available.")
+		//dialog.ShowInformation("Add timestamps report:", msg, myWin.parentWindow)
 	}
 	fmt.Printf("\n left goalpost edge at %0.6f\n", myWin.leftGoalpostStats.edgeAt)
 	fmt.Printf("right goalpost edge at %0.6f\n", myWin.rightGoalpostStats.edgeAt)
@@ -937,7 +930,11 @@ func getFitsFilenames(folder string) []string {
 		if !entries[i].IsDir() {
 			name := entries[i].Name()
 			if strings.HasSuffix(name, ".fits") {
-				fitsPaths = append(fitsPaths, folder+"/"+name)
+				if !strings.HasSuffix(folder, "\\") {
+					fitsPaths = append(fitsPaths, folder+"\\"+name)
+				} else {
+					fitsPaths = append(fitsPaths, folder+name)
+				}
 			}
 		}
 	}
