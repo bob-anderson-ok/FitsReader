@@ -13,6 +13,7 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"io"
 	"slices"
 
 	//"github.com/astrogo/fitsio"
@@ -109,9 +110,11 @@ type Config struct {
 	hist                       []int
 }
 
-const version = " 1.4.3"
+const version = " 1.4.4"
 
 const edgeTimesFileName = "FLASH_EDGE_TIMES.txt"
+
+const logFileName = "IotaFitsUtility_LOG.txt"
 
 const processedByIotaUtilities = "GPS: IotaGFT and Iota FITS reader"
 
@@ -120,7 +123,39 @@ var helpText string
 
 var myWin Config
 
+func copyFile(sourcePath, destPath string) error {
+	inputFile, err := os.Open(sourcePath)
+	if err != nil {
+		return fmt.Errorf("couldn't open source file: %v", err)
+	}
+	defer inputFile.Close()
+
+	outputFile, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("couldn't open dest file: %v", err)
+	}
+	defer outputFile.Close()
+
+	_, err = io.Copy(outputFile, inputFile)
+	if err != nil {
+		return fmt.Errorf("couldn't copy to dest from source: %v", err)
+	}
+	return nil
+}
+
 func main() {
+
+	logFile, err := os.OpenFile(logFileName, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.SetOutput(logFile)
+	//log.SetOutput(os.Stdout)  // Uncomment this to send all logs to console instead of a file
+	log.SetFlags(log.LstdFlags) // Add date and time as prefix
+	log.Println("IOTA Fits Utility started...")
+	log.SetFlags(0) // Turn off all log prefixes
+	log.Println("")
 
 	// We supply an ID (hopefully unique) because we need to use the preferences API
 	myApp := app.NewWithID("com.gmail.ok.anderson.bob")
@@ -139,7 +174,9 @@ func main() {
 
 	if len(os.Args) > 1 {
 		myWin.cmdLineFolder = os.Args[1]
-		fmt.Println("User gave folder to process on command line as:", myWin.cmdLineFolder)
+		log.Println("")
+		log.Println("IotaGFTapp (or user) gave folder to process on command line as:", myWin.cmdLineFolder)
+		log.Println("")
 	} else {
 		myWin.cmdLineFolder = ""
 	}
@@ -304,8 +341,19 @@ func main() {
 	myWin.centerContent = centerContent
 	w.SetContent(myWin.centerContent)
 	w.CenterOnScreen()
+	w.SetOnClosed(func() { processProgramClosed() })
 	go delayedExecution()
 	w.ShowAndRun() // This blocks. Place no other code after this call.
+}
+
+func processProgramClosed() {
+	log.Println("")
+	log.SetFlags(log.LstdFlags)
+	log.Println("... IOTA FITS Utility closed.")
+	err := copyFile(logFileName, myWin.folderSelected+logFileName)
+	if err != nil {
+		log.Printf(err.Error())
+	}
 }
 
 func delayedExecution() {
@@ -320,12 +368,6 @@ func delayedExecution() {
 					"\n\n%s  is available.\n\nIf auto-timestamp-insertion is checked,\nopening the file will"+
 						" trigger the timestamp insertion process.\n\n", myWin.cmdLineFolder), myWin.parentWindow)
 		}
-
-	}
-	//dialog.ShowInformation("Startup message:", "\nWe're awake now.\n", myWin.parentWindow)
-	if myWin.cmdLineFolder != "" {
-		//readEdgeTimeFile(myWin.cmdLineFolder)
-		//processFitsFolderPickedFromHistory(myWin.cmdLineFolder)
 	}
 }
 
@@ -420,26 +462,26 @@ func runLightcurveAcquisition() {
 	//fmt.Println("\nEnd of build lightcurve")
 }
 
-func alreadyHasIotaTimestamps(processedStr string) bool {
-	f, err := os.OpenFile(myWin.fitsFilePaths[0], os.O_RDONLY, 0644)
-	if err != nil {
-		log.Fatalf("could not open file: %+v", err)
-	}
-
-	fits, err := fitsio.Open(f)
-	if err != nil {
-		log.Fatalf("\nCould not open FITS file: %+v\n", err)
-	}
-
-	hdu := fits.HDU(0)
-	dateObsCard := hdu.Header().Get("DATE-OBS")
-	f.Close()
-	if dateObsCard == nil {
-		return false
-	}
-
-	return dateObsCard.Comment == processedStr
-}
+//func alreadyHasIotaTimestamps(processedStr string) bool {
+//	f, err := os.OpenFile(myWin.fitsFilePaths[0], os.O_RDONLY, 0644)
+//	if err != nil {
+//		log.Fatalf("could not open file: %+v", err)
+//	}
+//
+//	fits, err := fitsio.Open(f)
+//	if err != nil {
+//		log.Fatalf("\nCould not open FITS file: %+v\n", err)
+//	}
+//
+//	hdu := fits.HDU(0)
+//	dateObsCard := hdu.Header().Get("DATE-OBS")
+//	f.Close()
+//	if dateObsCard == nil {
+//		return false
+//	}
+//
+//	return dateObsCard.Comment == processedStr
+//}
 
 func addFlashTimestamps(_ bool) {
 	myWin.App.Preferences().SetBool("EnableAutoTimestampInsertion", myWin.addFlashTimestampsCheckbox.Checked)
@@ -448,39 +490,35 @@ func addFlashTimestamps(_ bool) {
 func addTimestampsToFitsFiles() {
 	//msg := fmt.Sprintf("Add timestamps to fits files entered.")
 	//dialog.ShowInformation("Add timestamps report:", msg, myWin.parentWindow)
-	if myWin.leftGoalpostTimestamp == "" || myWin.rightGoalpostTimestamp == "" {
-		//msg := fmt.Sprintf("There are no flash goalpost timestamps available.")
-		//dialog.ShowInformation("Add timestamps report:", msg, myWin.parentWindow)
-	}
-	fmt.Printf("\n left goalpost edge at %0.6f\n", myWin.leftGoalpostStats.edgeAt)
-	fmt.Printf("right goalpost edge at %0.6f\n", myWin.rightGoalpostStats.edgeAt)
+	log.Printf("\n left goalpost edge at %0.6f\n", myWin.leftGoalpostStats.edgeAt)
+	log.Printf("right goalpost edge at %0.6f\n", myWin.rightGoalpostStats.edgeAt)
 
 	leftFlashTime, err := time.Parse(time.RFC3339, myWin.leftGoalpostTimestamp)
 	if err != nil {
-		fmt.Println(err)
+		log.Println(err)
 	} else {
-		fmt.Println(" left goalpost occurred @", leftFlashTime)
+		log.Println(" left goalpost occurred @", leftFlashTime)
 	}
 
 	rightFlashTime, err := time.Parse(time.RFC3339, myWin.rightGoalpostTimestamp)
 	if err != nil {
-		fmt.Println(err)
+		log.Println(err)
 	} else {
-		fmt.Println("right goalpost occurred @", rightFlashTime)
+		log.Println("right goalpost occurred @", rightFlashTime)
 	}
 
 	deltaFlashTime := rightFlashTime.Sub(leftFlashTime)
 	//fmt.Println(deltaFlashTime.Nanoseconds())
 	frameTime := float64(deltaFlashTime.Nanoseconds()) / 1_000_000_000 / (myWin.rightGoalpostStats.edgeAt - myWin.leftGoalpostStats.edgeAt)
-	fmt.Printf("frame time: %0.6f\n", frameTime)
+	log.Printf("frame time: %0.6f\n", frameTime)
 
 	pwmUncertainty := 0.000032 / 2 // This is correct only for the IOTA-GFT running the pwm at 31.36 kHz
 	myWin.leftGoalpostStats.edgeSigma *= frameTime
 	myWin.leftGoalpostStats.edgeSigma += pwmUncertainty
 	myWin.rightGoalpostStats.edgeSigma *= frameTime
 	myWin.rightGoalpostStats.edgeSigma += pwmUncertainty
-	fmt.Printf(" left edge time uncertainty: %0.6f\n", myWin.leftGoalpostStats.edgeSigma)
-	fmt.Printf("right edge time uncertainty: %0.6f\n", myWin.rightGoalpostStats.edgeSigma)
+	log.Printf(" left edge time uncertainty: %0.6f\n", myWin.leftGoalpostStats.edgeSigma)
+	log.Printf("right edge time uncertainty: %0.6f\n", myWin.rightGoalpostStats.edgeSigma)
 	t0Delta := time.Duration(myWin.leftGoalpostStats.edgeAt * frameTime * 1_000_000_000)
 	t0 := leftFlashTime.Add(-t0Delta)
 	myWin.timestamps = make([]string, 0)
@@ -500,13 +538,13 @@ func addTimestampsToFitsFiles() {
 
 		outFile, err := fitsio.Create(f)
 		if err != nil {
-			fmt.Println(err)
+			log.Println(err)
 		}
 
 		fits, err := fitsio.Open(f)
 
 		if err != nil {
-			fmt.Printf("\nCould not open FITS file: %+v\n", err)
+			log.Printf("\nCould not open FITS file: %+v\n", err)
 			return
 		}
 
@@ -546,17 +584,17 @@ func addTimestampsToFitsFiles() {
 		// otherwise the outFile.Write(hdu) will simply append to the file (and be invisible to fits readers)
 		_, err = f.Seek(0, 0)
 		if err != nil {
-			fmt.Println(err)
+			log.Println(err)
 		}
 
 		err = outFile.Write(hdu)
 		if err != nil {
-			fmt.Println(err)
+			log.Println(err)
 		}
 
 		err = outFile.Close()
 		if err != nil {
-			fmt.Println(err)
+			log.Println(err)
 		}
 		i += 1
 
@@ -685,7 +723,7 @@ func openFitsFile(fitsFilePath string) *fitsio.File {
 	fileHandle, err1 := os.Open(fitsFilePath)
 	if err1 != nil {
 		errMsg := fmt.Errorf("os.Open() could not open %s: %w", fitsFilePath, err1)
-		fmt.Printf(errMsg.Error())
+		log.Printf(errMsg.Error())
 		return nil
 	}
 
@@ -693,13 +731,13 @@ func openFitsFile(fitsFilePath string) *fitsio.File {
 		err2 := fileHandle.Close()
 		if err2 != nil {
 			errMsg := fmt.Errorf("could not close %s: %w", fitsFilePath, err2)
-			fmt.Printf(errMsg.Error())
+			log.Printf(errMsg.Error())
 		}
 	}(fileHandle)
 
 	fitsHandle, err3 := fitsio.Open(fileHandle)
 	if err3 != nil {
-		fmt.Println(err3)
+		log.Println(err3)
 	}
 
 	return fitsHandle
@@ -747,10 +785,11 @@ func histogram(sample []byte, stride, cornerRow, cornerCol, size int) (hist []in
 
 func reportROIsettings() {
 	myWin.reportCount += 1
-	fmt.Printf("roi report number: %d\n", myWin.reportCount)
-	fmt.Printf("roiWidth: %d   roiHeight: %d\n", myWin.roiWidth, myWin.roiHeight)
-	fmt.Printf("x0: %d  y0: %d  x1: %d  y1: %d\n\n", myWin.x0, myWin.y0, myWin.x1, myWin.y1)
+	log.Printf("roi report number: %d\n", myWin.reportCount)
+	log.Printf("roiWidth: %d   roiHeight: %d\n", myWin.roiWidth, myWin.roiHeight)
+	log.Printf("x0: %d  y0: %d  x1: %d  y1: %d\n\n", myWin.x0, myWin.y0, myWin.x1, myWin.y1)
 }
+
 func setSlider(hist []int, targetPercent int, sliderToSet string) {
 	// Compute the pixel count (requiredPixelSum) we want the standard deviation bars to enclose
 	totalPixelCount := 0
@@ -822,7 +861,7 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 	closeErr := f.Close()
 	if closeErr != nil {
 		errMsg := fmt.Errorf("could not close %s: %w", filePath, closeErr)
-		fmt.Printf(errMsg.Error())
+		log.Printf(errMsg.Error())
 	}
 
 	goImage := myWin.primaryHDU.(fitsio.Image).Image()
@@ -923,7 +962,7 @@ func formatMetaData(primaryHDU fitsio.HDU) ([]string, string) {
 func getFitsFilenames(folder string) []string {
 	entries, err := os.ReadDir(folder)
 	if err != nil {
-		fmt.Println(fmt.Errorf("%w", err))
+		log.Println(fmt.Errorf("%w", err))
 	}
 	var fitsPaths []string
 	for i := 0; i < len(entries); i += 1 {

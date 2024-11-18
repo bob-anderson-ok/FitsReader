@@ -103,25 +103,5 @@ func pixelSum() float64 {
 	for i := 0; i < len(bob); i += 1 {
 		pixelSum += float64(bob[i])
 	}
-	//case "Gray16":
-	//	bob := myWin.primaryHDU.(fitsio.Image).Raw()
-	//	for i := 0; i < len(bob)-2; i += 2 {
-	//		valueUint16 := binary.LittleEndian.Uint16(bob[i : i+2])
-	//		pixelSum += float64(valueUint16)
-	//	}
-	//case "Gray32":
-	//	bob := myWin.primaryHDU.(fitsio.Image).Raw()
-	//	for i := 0; i < len(bob)-4; i += 4 {
-	//		pixelSum += math.Float64frombits(binary.BigEndian.Uint64(bob[i : i+4]))
-	//	}
-	//case "Gray64":
-	//	bob := myWin.primaryHDU.(fitsio.Image).Raw()
-	//	for i := 0; i < len(bob)-8; i += 8 {
-	//		pixelSum += math.Float64frombits(binary.BigEndian.Uint64(bob[i : i+8]))
-	//	}
-	//default:
-	//	msg := fmt.Sprintf("Unexpected 'kind': %s", kind)
-	//	dialog.ShowInformation("Oops", msg, myWin.parentWindow)
-	//}
 	return pixelSum
 }

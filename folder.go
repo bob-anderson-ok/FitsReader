@@ -10,6 +10,7 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/storage"
 	"fyne.io/fyne/v2/widget"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -21,9 +22,11 @@ func changeFolderSeparatorToBackslash(path string) string {
 }
 
 func processFitsFolderSelectedByFolderDialog(path fyne.ListableURI, err error) {
+	log.Println("")
+	log.Println("Note: Fyne error - uri is not listable - is normal and not a problem")
 	myWin.showFolder.Hide()
 	if err != nil {
-		fmt.Println(fmt.Errorf("%w\n", err))
+		log.Println(fmt.Errorf("%w\n", err))
 		return
 	}
 	processChosenListableURI(path)
@@ -32,13 +35,14 @@ func processFitsFolderSelectedByFolderDialog(path fyne.ListableURI, err error) {
 func processChosenListableURI(path fyne.ListableURI) {
 	if path != nil {
 		myWin.folderSelected = changeFolderSeparatorToBackslash(path.Path())
+		log.Println("")
+		log.Printf("Folder selected: %s", myWin.folderSelected)
 		processChosenFolderString(myWin.folderSelected)
 	}
 }
 
 func processChosenFolderString(path string) {
 	if path != "" {
-		//fmt.Printf("folder selected: %s\n", path)
 		myWin.leftGoalpostTimestamp = ""
 		myWin.rightGoalpostTimestamp = ""
 		initializeConfig(true)
@@ -161,7 +165,8 @@ func pathExists(path string) bool {
 }
 
 func processFitsFolderPickedFromHistory(path string) {
-	//fmt.Printf("folder selected: %s\n", path)
+	log.Println("")
+	log.Printf("folder selected: %s\n", path)
 	initializeConfig(true)
 
 	myWin.autoContrastNeeded = true

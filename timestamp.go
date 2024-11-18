@@ -1,13 +1,15 @@
 package main
 
 import (
-	"fmt"
+	// "fmt"
 	"github.com/montanaflynn/stats"
+	"log"
 	"math"
 )
 
 func findFlashEdges() {
-	// Find flash R edge
+	log.Println("")
+	log.Println("================= flash edge detection ===================")
 	fc := myWin.lightcurve // Shortened name for flash lightcurve
 	maxFlashLevel, _ := maxInSlice(fc)
 	minFlashLevel, _ := minInSlice(fc)
@@ -15,11 +17,11 @@ func findFlashEdges() {
 
 	myWin.leftGoalpostStats = new(EdgeStats)
 	extractEdgeTimeAndStats(fc, "left", midFlashLevel, myWin.leftGoalpostStats)
-	fmt.Printf("first edge at %0.6f\n", myWin.leftGoalpostStats.edgeAt)
+	log.Printf("first edge at %0.6f\n", myWin.leftGoalpostStats.edgeAt)
 
 	myWin.rightGoalpostStats = new(EdgeStats)
 	extractEdgeTimeAndStats(fc, "right", midFlashLevel, myWin.rightGoalpostStats)
-	fmt.Printf("second edge at %0.6f\n", myWin.rightGoalpostStats.edgeAt)
+	log.Printf("second edge at %0.6f\n", myWin.rightGoalpostStats.edgeAt)
 }
 
 type EdgeStats struct {
@@ -36,14 +38,14 @@ type EdgeStats struct {
 }
 
 func prettyPrintWing(wingName string, values []float64) {
-	fmt.Printf("\n%s", wingName)
+	log.Printf("\n%s", wingName)
 	for i := 0; i < len(values); i++ {
 		if i%10 == 0 {
-			fmt.Println()
+			log.Println()
 		}
-		fmt.Printf("%10.0f ", values[i])
+		log.Printf("%3d  %10.0f ", i, values[i])
 	}
-	fmt.Println()
+	log.Println()
 }
 
 func mean(data []float64) float64 {
@@ -109,7 +111,7 @@ func getTransitionPointData(flashWing []float64) (meanBottom, stdBottom, meanTop
 func extractEdgeTimeAndStats(fc []float64, goalpost string, midFlashLevel float64, edgeStats *EdgeStats) {
 	const debugPrint bool = true
 	if debugPrint {
-		fmt.Printf("\n\n")
+		log.Printf("\n")
 	}
 
 	var leftWing []float64
@@ -130,8 +132,12 @@ func extractEdgeTimeAndStats(fc []float64, goalpost string, midFlashLevel float6
 	if goalpost == "left" {
 		bottomMean, bottomStd, topMean, topStd, transitionPoint = getTransitionPointData(leftWing)
 		if debugPrint {
-			fmt.Printf("leftBottom:  mean %f   std %f   leftTop: mean %f   std %f  leftTransitionPoint: %d",
-				bottomMean, bottomStd, topMean, topStd, transitionPoint)
+			log.Printf("leftBottom:  mean %f   std %f",
+				bottomMean, bottomStd)
+			log.Printf("leftTop:     mean %f   std %f",
+				topMean, topStd)
+			log.Printf("left transition value: %f @ %d",
+				leftWing[transitionPoint], transitionPoint)
 			prettyPrintWing("left wing:", leftWing)
 		}
 	}
@@ -139,8 +145,12 @@ func extractEdgeTimeAndStats(fc []float64, goalpost string, midFlashLevel float6
 	if goalpost == "right" {
 		bottomMean, bottomStd, topMean, topStd, transitionPoint = getTransitionPointData(rightWing)
 		if debugPrint {
-			fmt.Printf("rightBottom:  mean %f   std %f   rightTop: mean %f   std %f  rightTransitionPoint: %d",
-				bottomMean, bottomStd, topMean, topStd, transitionPoint)
+			log.Printf("rightBottom:  mean %f   std %f",
+				bottomMean, bottomStd)
+			log.Printf("rightTop:     mean %f   std %f",
+				topMean, topStd)
+			log.Printf("right transition value: %f @ %d",
+				rightWing[transitionPoint], transitionPoint)
 			prettyPrintWing("right wing:", rightWing)
 		}
 	}
@@ -171,15 +181,15 @@ func extractEdgeTimeAndStats(fc []float64, goalpost string, midFlashLevel float6
 	edgeStats.edgeSigma = adjustedSigmaFrame
 
 	if debugPrint {
-		fmt.Printf("\nA: %0.4f  B: %0.4f\n", bottomMean, topMean)
-		fmt.Printf("sigmaA: %0.4f  sigmaB: %0.4f\n", bottomStd, topStd)
-		fmt.Printf("p: %0.4f  delta: %0.6f\n", p, delta)
-		fmt.Printf("edge of intermediate point: %0.6f\n", edgeAt)
-		fmt.Printf("sigmaP: %0.4f  pSNR: %0.4f\n", sigmaP, pSNR)
-		fmt.Printf("bSNR: %0.4f  aSNR: %0.4f\n", bSNR, aSNR)
-		fmt.Printf("sigmaFrame: %0.6f\n", sigmaFrame)
-		fmt.Printf("sigmaFrame from ratio: %0.6f\n", sigmaFrameFromRatio)
-		fmt.Printf("adjustedSigmaFrame: %0.6f\n", adjustedSigmaFrame)
+		log.Printf("\nA: %0.4f  B: %0.4f\n", bottomMean, topMean)
+		log.Printf("sigmaA: %0.4f  sigmaB: %0.4f\n", bottomStd, topStd)
+		log.Printf("p: %0.4f  delta: %0.6f\n", p, delta)
+		log.Printf("edge of intermediate point: %0.6f\n", edgeAt)
+		log.Printf("sigmaP: %0.4f  pSNR: %0.4f\n", sigmaP, pSNR)
+		log.Printf("bSNR: %0.4f  aSNR: %0.4f\n", bSNR, aSNR)
+		log.Printf("sigmaFrame: %0.6f\n", sigmaFrame)
+		log.Printf("sigmaFrame from ratio: %0.6f\n", sigmaFrameFromRatio)
+		log.Printf("adjustedSigmaFrame: %0.6f\n", adjustedSigmaFrame)
 	}
 
 	return

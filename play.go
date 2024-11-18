@@ -1,8 +1,9 @@
 package main
 
 import (
-	"fmt"
+	// "fmt"
 	"fyne.io/fyne/v2/dialog"
+	"log"
 	"time"
 )
 
@@ -138,7 +139,7 @@ func setPlayDelay(opt string) {
 	case "max":
 		myWin.playDelay = 10 * time.Microsecond
 	default:
-		fmt.Printf("Unexpected frame rate of %s found in setPlayDelay()", opt)
+		log.Printf("Unexpected frame rate of %s found in setPlayDelay()", opt)
 	}
 }
 
