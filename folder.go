@@ -17,11 +17,13 @@ import (
 )
 
 func changeFolderSeparatorToBackslash(path string) string {
+	trace(path)
 	windowsPath := strings.Replace(path, "/", "\\", -1)
 	return windowsPath
 }
 
 func processFitsFolderSelectedByFolderDialog(path fyne.ListableURI, err error) {
+	trace(path.Path())
 	log.Println("")
 	log.Println("Note: Fyne error - uri is not listable - is normal and not a problem")
 	myWin.showFolder.Hide()
@@ -33,15 +35,15 @@ func processFitsFolderSelectedByFolderDialog(path fyne.ListableURI, err error) {
 }
 
 func processChosenListableURI(path fyne.ListableURI) {
-	if path != nil {
-		myWin.folderSelected = changeFolderSeparatorToBackslash(path.Path())
-		log.Println("")
-		log.Printf("Folder selected: %s", myWin.folderSelected)
-		processChosenFolderString(myWin.folderSelected)
-	}
+	trace(path.Path())
+	myWin.folderSelected = changeFolderSeparatorToBackslash(path.Path())
+	log.Println("")
+	log.Printf("Folder selected: %s", myWin.folderSelected)
+	processChosenFolderString(myWin.folderSelected)
 }
 
 func processChosenFolderString(path string) {
+	trace(path)
 	if path != "" {
 		myWin.leftGoalpostTimestamp = ""
 		myWin.rightGoalpostTimestamp = ""
@@ -104,6 +106,7 @@ func processChosenFolderString(path string) {
 }
 
 func addPathToHistory(path string) {
+	trace(path)
 	// We only add the given path to the folder path history if it is not already there
 	dupPath := false
 	for _, folderName := range myWin.fitsFolderHistory {
@@ -118,6 +121,7 @@ func addPathToHistory(path string) {
 }
 
 func openNewFolderDialog(lastFitsFolderStr string) {
+	trace(lastFitsFolderStr)
 	lastFitsFolderStr = myWin.App.Preferences().StringWithFallback("lastFitsFolder", "")
 
 	if myWin.cmdLineFolder != "" {
@@ -152,6 +156,7 @@ func openNewFolderDialog(lastFitsFolderStr string) {
 }
 
 func isDirectory(path string) bool {
+	trace(path)
 	fileInfo, err := os.Stat(path)
 	if err != nil {
 		return false
@@ -160,11 +165,13 @@ func isDirectory(path string) bool {
 }
 
 func pathExists(path string) bool {
+	trace(path)
 	_, err := os.Stat(path)
 	return err == nil
 }
 
 func processFitsFolderPickedFromHistory(path string) {
+	trace(path)
 	log.Println("")
 	log.Printf("folder selected: %s\n", path)
 	initializeConfig(true)
@@ -205,12 +212,14 @@ func processFitsFolderPickedFromHistory(path string) {
 }
 
 func openFileBrowser() {
+	trace("")
 	myWin.fileBrowserRequested = true
 	myWin.folderSelectWin.Close()
 	openNewFolderDialog("")
 }
 
 func removePath(paths []string, path string) []string {
+	trace(path)
 	// This is used to remove FITS folder paths
 	var newPaths []string
 	for _, i := range paths {
@@ -222,12 +231,14 @@ func removePath(paths []string, path string) []string {
 }
 
 func processFolderSelectionClosed() {
+	trace("")
 	myWin.folderSelectWin.Close()
 	myWin.selectionMade = true
 	return
 }
 
 func readEdgeTimeFile(path string) {
+	trace(path)
 	var onTimes []string
 	var filePath string
 
@@ -279,7 +290,7 @@ func readEdgeTimeFile(path string) {
 }
 
 func processFolderSelection(path string) {
-
+	trace(path)
 	if myWin.deletePathCheckbox.Checked {
 		//fmt.Printf("Selection occurred while in Delete mode, so removing entry %s\n", path)
 		myWin.fitsFolderHistory = removePath(myWin.fitsFolderHistory, path)
@@ -305,11 +316,12 @@ func processFolderSelection(path string) {
 }
 
 func saveFolderHistory() {
+	trace("")
 	myWin.App.Preferences().SetStringList("folderHistory", myWin.fitsFolderHistory)
 }
 
 func folderHistorySelect() {
-
+	trace("")
 	// Build a dialog for holding a history of recently opened FITS folders.
 	// Provide a button to open a browser and a way to remove un-needed entries
 
@@ -344,7 +356,7 @@ func folderHistorySelect() {
 }
 
 func chooseFitsFolder() {
-
+	trace("")
 	folderHistorySelect() // Build and open the selection dialog
 
 	for { // Wait for a selection to be made in an infinite loop or Browser open button clicked
@@ -366,5 +378,4 @@ func chooseFitsFolder() {
 		myWin.lightcurve = make([]float64, 0)
 		processFitsFolderPickedFromHistory(myWin.folderSelected)
 	}
-
 }

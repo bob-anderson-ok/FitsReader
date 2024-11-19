@@ -14,6 +14,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 	"io"
+	"runtime"
 	"slices"
 
 	//"github.com/astrogo/fitsio"
@@ -110,11 +111,15 @@ type Config struct {
 	hist                       []int
 }
 
-const version = " 1.4.4"
+const version = " 1.4.5"
 
 const edgeTimesFileName = "FLASH_EDGE_TIMES.txt"
 
 const logFileName = "IotaFitsUtility_LOG.txt"
+
+const traceFileName = "IotaFitsUtility_TRACE_FILE.txt"
+
+var traceFile *os.File
 
 const processedByIotaUtilities = "GPS: IotaGFT and Iota FITS reader"
 
@@ -123,7 +128,30 @@ var helpText string
 
 var myWin Config
 
+var lastFunctionName = ""
+var lastFunctionCount = 0
+
+func trace(msg string) {
+	pc := make([]uintptr, 15)
+	n := runtime.Callers(2, pc)
+	frames := runtime.CallersFrames(pc[:n])
+	frame, _ := frames.Next()
+	//fmt.Printf("%s:%d %s\n", frame.File, frame.Line, frame.Function)
+	if frame.Function == lastFunctionName { // We have already printed the previous entry
+		lastFunctionCount += 1
+		return
+	} else {
+		if lastFunctionCount != 0 {
+			_, _ = traceFile.WriteString(fmt.Sprintf("entered: %s() %d more times\n", lastFunctionName, lastFunctionCount))
+			lastFunctionCount = 0
+		}
+		lastFunctionName = frame.Function
+		_, _ = traceFile.WriteString(fmt.Sprintf("entered: %s()  %s\n", frame.Function, msg))
+	}
+}
+
 func copyFile(sourcePath, destPath string) error {
+	trace("")
 	inputFile, err := os.Open(sourcePath)
 	if err != nil {
 		return fmt.Errorf("couldn't open source file: %v", err)
@@ -144,7 +172,16 @@ func copyFile(sourcePath, destPath string) error {
 }
 
 func main() {
+	var err error
+	traceFile, err = os.OpenFile(traceFileName, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer traceFile.Close()
 
+	//traceFile = os.Stdout // Use this in place of the above traceFile setting to write to console only
+
+	trace("")
 	logFile, err := os.OpenFile(logFileName, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 	if err != nil {
 		log.Fatal(err)
@@ -347,6 +384,7 @@ func main() {
 }
 
 func processProgramClosed() {
+	trace("")
 	log.Println("")
 	log.SetFlags(log.LstdFlags)
 	log.Println("... IOTA FITS Utility closed.")
@@ -357,6 +395,7 @@ func processProgramClosed() {
 }
 
 func delayedExecution() {
+	trace("")
 	time.Sleep(time.Second * 1)
 	if myWin.cmdLineFolder != "" {
 		if myWin.addFlashTimestampsCheckbox.Checked {
@@ -372,6 +411,7 @@ func delayedExecution() {
 }
 
 func doXaxis(img, grayImage image.Image, xmax, y int) {
+	trace("")
 	var oldColor color.Color
 	var newColor color.Gray
 	for x := 0; x < xmax; x++ {
@@ -385,6 +425,7 @@ func convertImageToGray(img image.Image) (grayImage image.Image) {
 	//start := time.Now()
 	//var oldColor color.Color
 	//var newColor color.Gray
+	trace("")
 	bounds := img.Bounds()
 	grayImage = image.NewGray(bounds)
 	var wg sync.WaitGroup
@@ -421,6 +462,7 @@ func convertImageToGray(img image.Image) (grayImage image.Image) {
 //}
 
 func buildFlashLightcurve() {
+	trace("")
 	if myWin.numFiles == 0 {
 		return // There are no frames to process
 	}
@@ -440,7 +482,7 @@ func buildFlashLightcurve() {
 func runLightcurveAcquisition() {
 	//fmt.Printf("\n\nframes indexed from %d to %d inclusive will be used to build flash lightcurve\n",
 	//	myWin.lightCurveStartIndex, myWin.lightCurveEndIndex)
-
+	trace("")
 	myWin.lightcurve = []float64{} // Clear the lightcurve slice
 	myWin.lcIndices = []int{}      // and the corresponding indices
 
@@ -484,12 +526,14 @@ func runLightcurveAcquisition() {
 //}
 
 func addFlashTimestamps(_ bool) {
+	trace("")
 	myWin.App.Preferences().SetBool("EnableAutoTimestampInsertion", myWin.addFlashTimestampsCheckbox.Checked)
 }
 
 func addTimestampsToFitsFiles() {
 	//msg := fmt.Sprintf("Add timestamps to fits files entered.")
 	//dialog.ShowInformation("Add timestamps report:", msg, myWin.parentWindow)
+	trace("")
 	log.Printf("\n left goalpost edge at %0.6f\n", myWin.leftGoalpostStats.edgeAt)
 	log.Printf("right goalpost edge at %0.6f\n", myWin.rightGoalpostStats.edgeAt)
 
@@ -610,7 +654,7 @@ func addTimestampsToFitsFiles() {
 }
 
 func initializeConfig(running bool) {
-
+	trace("")
 	myWin.buildLightcurve = false
 	myWin.autoPlayEnabled = false
 	myWin.loopStartIndex = -1
@@ -649,6 +693,7 @@ func (f *forcedVariant) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) col
 }
 
 func processFileSliderMove(position float64) {
+	trace("")
 	myWin.fileIndex = int(position)
 	myWin.fileLabel.SetText(myWin.fitsFilePaths[myWin.fileIndex])
 	myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
@@ -656,6 +701,7 @@ func processFileSliderMove(position float64) {
 }
 
 func showMetaData() {
+	trace("")
 	helpWin := myWin.App.NewWindow("FITS Meta-data")
 	helpWin.Resize(fyne.Size{Height: 600, Width: 700})
 	_, metaDataList, _ := getFitsImageFromFilePath(myWin.fitsFilePaths[myWin.fileIndex])
@@ -675,7 +721,7 @@ func showMetaData() {
 }
 
 func displayFitsImage() fyne.CanvasObject {
-
+	trace("")
 	myWin.fileLabel.SetText(myWin.fitsFilePaths[myWin.fileIndex])
 
 	// A side effect of the next call is that myWin.displayBuffer is filled.
@@ -720,6 +766,7 @@ func displayFitsImage() fyne.CanvasObject {
 }
 
 func openFitsFile(fitsFilePath string) *fitsio.File {
+	trace("")
 	fileHandle, err1 := os.Open(fitsFilePath)
 	if err1 != nil {
 		errMsg := fmt.Errorf("os.Open() could not open %s: %w", fitsFilePath, err1)
@@ -744,7 +791,7 @@ func openFitsFile(fitsFilePath string) *fitsio.File {
 }
 
 func initializeImages() {
-
+	trace("")
 	// side effect: myWin.primaryHDU is set
 	fitsImage, _, _ := getFitsImageFromFilePath(myWin.fitsFilePaths[0])
 
@@ -773,6 +820,7 @@ func initializeImages() {
 }
 
 func histogram(sample []byte, stride, cornerRow, cornerCol, size int) (hist []int) {
+	trace("")
 	hist = make([]int, 256)
 	for row := cornerRow; row < cornerRow+size; row++ {
 		for col := cornerCol; col < cornerCol+size; col++ {
@@ -784,6 +832,7 @@ func histogram(sample []byte, stride, cornerRow, cornerCol, size int) (hist []in
 }
 
 func reportROIsettings() {
+	trace("")
 	myWin.reportCount += 1
 	log.Printf("roi report number: %d\n", myWin.reportCount)
 	log.Printf("roiWidth: %d   roiHeight: %d\n", myWin.roiWidth, myWin.roiHeight)
@@ -791,6 +840,7 @@ func reportROIsettings() {
 }
 
 func setSlider(hist []int, targetPercent int, sliderToSet string) {
+	trace("")
 	// Compute the pixel count (requiredPixelSum) we want the standard deviation bars to enclose
 	totalPixelCount := 0
 	for i := 0; i < len(hist); i++ {
@@ -852,6 +902,7 @@ func setSlider(hist []int, targetPercent int, sliderToSet string) {
 }
 
 func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string) {
+	trace("")
 	// An important side effect of this function: it fills the myWin.displayBuffer []byte
 
 	f := openFitsFile(filePath)
@@ -920,6 +971,7 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 }
 
 func makeDisplayBuffer(width, height int) {
+	trace("")
 	myWin.displayBuffer = make([]byte, width*height*myWin.bytesPerPixel)
 	myWin.workingBuffer = make([]byte, width*height*myWin.bytesPerPixel)
 	// Diagnostic print ...
@@ -928,6 +980,7 @@ func makeDisplayBuffer(width, height int) {
 }
 
 func formatMetaData(primaryHDU fitsio.HDU) ([]string, string) {
+	trace("")
 	var cards []fitsio.Card
 	var metaDataText []string
 	var line string
@@ -960,6 +1013,7 @@ func formatMetaData(primaryHDU fitsio.HDU) ([]string, string) {
 }
 
 func getFitsFilenames(folder string) []string {
+	trace("")
 	entries, err := os.ReadDir(folder)
 	if err != nil {
 		log.Println(fmt.Errorf("%w", err))
@@ -984,6 +1038,7 @@ func getFitsFilenames(folder string) []string {
 }
 
 func applyContrastControls(original, stretched []byte) {
+	trace("")
 	// stretched is modified.    original is untouched.
 	var floatVal float64
 	var scale float64
@@ -1025,6 +1080,7 @@ func applyContrastControls(original, stretched []byte) {
 }
 
 func showSplash() {
+	trace("")
 	//time.Sleep(500 * time.Millisecond)
 	helpWin := myWin.App.NewWindow("Hello")
 	helpWin.Resize(fyne.Size{Height: 450, Width: 700})
