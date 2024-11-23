@@ -17,7 +17,7 @@ import (
 	"runtime"
 	"slices"
 
-	//"github.com/astrogo/fitsio"
+	"github.com/montanaflynn/stats"
 	_ "github.com/qdm12/reprint"
 	"image"
 	"image/color"
@@ -41,6 +41,11 @@ type Config struct {
 	whiteSet                   bool
 	lightcurve                 []float64
 	lcIndices                  []int
+	sysTimes                   []time.Time
+	sysTimeDeltaSeconds        []float64
+	gapIndices                 []int
+	gapWidth                   []int
+	timeStepSeconds            float64
 	lightCurveStartIndex       int
 	lightCurveEndIndex         int
 	displayBuffer              []byte
@@ -111,7 +116,7 @@ type Config struct {
 	hist                       []int
 }
 
-const version = " 1.4.5"
+const version = " 1.4.7"
 
 const edgeTimesFileName = "FLASH_EDGE_TIMES.txt"
 
@@ -388,7 +393,7 @@ func processProgramClosed() {
 	log.Println("")
 	log.SetFlags(log.LstdFlags)
 	log.Println("... IOTA FITS Utility closed.")
-	err := copyFile(logFileName, myWin.folderSelected+logFileName)
+	err := copyFile(logFileName, myWin.folderSelected+"\\"+logFileName)
 	if err != nil {
 		log.Printf(err.Error())
 	}
@@ -486,6 +491,8 @@ func runLightcurveAcquisition() {
 	myWin.lightcurve = []float64{} // Clear the lightcurve slice
 	myWin.lcIndices = []int{}      // and the corresponding indices
 
+	myWin.sysTimes = []time.Time{} // Slice to hold SharpCap reported system times
+
 	// This records the first frame as a side effect, but only if the slider changes value, so we force that.
 	myWin.fileSlider.SetValue(float64(myWin.lightCurveEndIndex))
 
@@ -530,10 +537,49 @@ func addFlashTimestamps(_ bool) {
 	myWin.App.Preferences().SetBool("EnableAutoTimestampInsertion", myWin.addFlashTimestampsCheckbox.Checked)
 }
 
+func getFrameTimeFromSystemTimestamps() (bool, int) {
+	for _, frameFile := range myWin.fitsFilePaths {
+		f, err := os.OpenFile(frameFile, os.O_RDWR, 0644)
+		if err != nil {
+			log.Fatalf("could not open file: %+v", err)
+		}
+
+		fits, err := fitsio.Open(f)
+
+		if err != nil {
+			log.Printf("\nCould not open FITS file: %+v\n", err)
+			return false, 0
+		}
+
+		hdu := fits.HDU(0)
+
+		dateObsCard := hdu.Header().Get("DATE-OBS")
+		if dateObsCard == nil {
+			// A SharpCap capture always has a DATE-OBS card. We depend on this, so
+			// cannot proceed if missing
+			log.Println("\nCould not find a DATE-OBS card. This is required.")
+			return false, 0
+		}
+
+		sysTimeString := fmt.Sprintf("%v", dateObsCard.Value) + "Z"
+		sysTime, err := time.Parse(time.RFC3339, sysTimeString)
+		if err != nil {
+			log.Printf("\nCould not parse sysTimeString %s: %+v\n", sysTimeString, err)
+			return false, 0
+		}
+		myWin.sysTimes = append(myWin.sysTimes, sysTime)
+	}
+	// The following call updates myWin.timeStepSeconds, detects drop and cadence errors
+	numFramesDroppedInTimeZone := analyzeTimeStepsAndImproveFrameTimeEstimate()
+	showTimePlot()
+	return true, numFramesDroppedInTimeZone
+}
+
 func addTimestampsToFitsFiles() {
-	//msg := fmt.Sprintf("Add timestamps to fits files entered.")
-	//dialog.ShowInformation("Add timestamps report:", msg, myWin.parentWindow)
 	trace("")
+
+	frameTimeFromSystemTimestampsIsValid, numDroppedFramesInTimingZone := getFrameTimeFromSystemTimestamps()
+
 	log.Printf("\n left goalpost edge at %0.6f\n", myWin.leftGoalpostStats.edgeAt)
 	log.Printf("right goalpost edge at %0.6f\n", myWin.rightGoalpostStats.edgeAt)
 
@@ -552,11 +598,17 @@ func addTimestampsToFitsFiles() {
 	}
 
 	deltaFlashTime := rightFlashTime.Sub(leftFlashTime)
-	//fmt.Println(deltaFlashTime.Nanoseconds())
-	frameTime := float64(deltaFlashTime.Nanoseconds()) / 1_000_000_000 / (myWin.rightGoalpostStats.edgeAt - myWin.leftGoalpostStats.edgeAt)
-	log.Printf("frame time: %0.6f\n", frameTime)
+	var frameTime float64
+	if frameTimeFromSystemTimestampsIsValid {
+		frameTime = myWin.timeStepSeconds
+		log.Printf("\nframe time (from system timestamps): %0.6f\n\n", frameTime)
+	} else {
+		frameTime = float64(deltaFlashTime.Nanoseconds()) / 1_000_000_000 /
+			(myWin.rightGoalpostStats.edgeAt - myWin.leftGoalpostStats.edgeAt + float64(numDroppedFramesInTimingZone))
+		log.Printf("\nframe time (from flash edges): %0.6f\n\n", frameTime)
+	}
 
-	pwmUncertainty := 0.000032 / 2 // This is correct only for the IOTA-GFT running the pwm at 31.36 kHz
+	pwmUncertainty := 0.000032 / 2 // This is correct(ish) only for the IOTA-GFT running the pwm at 31.36 kHz
 	myWin.leftGoalpostStats.edgeSigma *= frameTime
 	myWin.leftGoalpostStats.edgeSigma += pwmUncertainty
 	myWin.rightGoalpostStats.edgeSigma *= frameTime
@@ -566,15 +618,19 @@ func addTimestampsToFitsFiles() {
 	t0Delta := time.Duration(myWin.leftGoalpostStats.edgeAt * frameTime * 1_000_000_000)
 	t0 := leftFlashTime.Add(-t0Delta)
 	myWin.timestamps = make([]string, 0)
-	for i := range myWin.lightcurve {
+	for i := range myWin.lightcurve { // TODO Add count of all dropped frames
 		tn := t0.Add(time.Duration(float64(i) * frameTime * 1_000_000_000))
 		tsStr := tn.Format("2006-01-02T15:04:05.000000")
 		myWin.timestamps = append(myWin.timestamps, tsStr)
-		//fmt.Println(i, tsStr)
-	}
+	} // Some of these won't get used
 
-	i := 0
+	k := 0 // Indexes through timeStamps
 	for _, frameFile := range myWin.fitsFilePaths {
+		if frameFile == "droppedFrame" {
+			k += 1 // Skip this file
+			continue
+		}
+
 		f, err := os.OpenFile(frameFile, os.O_RDWR, 0644)
 		if err != nil {
 			log.Fatalf("could not open file: %+v", err)
@@ -593,35 +649,54 @@ func addTimestampsToFitsFiles() {
 		}
 
 		hdu := fits.HDU(0)
-		//var dateObsCard []fitsio.Card
+
 		dateObsCard := hdu.Header().Get("DATE-OBS")
+		if dateObsCard == nil {
+			// A SharpCap capture always has a DATE-OBS card. We depend on this, so
+			// cannot proceed if missing
+			log.Println("\nCould not find a DATE-OBS card. This is required.")
+			return
+		}
+
 		cardList := hdu.(*fitsio.PrimaryHDU).Hdr.Cards
 
-		if dateObsCard == nil {
+		// Find index of first "DATE-OBS" card and note if it is from SharpCap
+		// If it is from SharpCap, we want to insert ours just above this point to preserve history.
+		// If it is from us, we will allow an overwrite of the timestamp to allow for repeat insertions
+		var indexOfSharpCapDateObsCard = -1
+		for i, card := range cardList {
+			if card.Name == "DATE-OBS" {
+				if card.Comment != processedByIotaUtilities {
+					indexOfSharpCapDateObsCard = i
+				}
+				break
+			}
+		}
+
+		if indexOfSharpCapDateObsCard == -1 { // First DATE-OBS card is from us
+			hdu.Header().Set("DATE-OBS", myWin.timestamps[k], processedByIotaUtilities)
+		} else {
 			// Make a DATE-OBS card. Put it in a slice so that we can use slice.Concat()
 			dateObsCard = new(fitsio.Card)
 			dateObsCard.Name = "DATE-OBS"
-			dateObsCard.Value = myWin.timestamps[i]
+			dateObsCard.Value = myWin.timestamps[k]
 			dateObsCard.Comment = processedByIotaUtilities
 			dateObsCardSlice := make([]fitsio.Card, 1)
 			dateObsCardSlice[0] = *dateObsCard
 
 			// We will form a complete new card list from the old one by inserting the new DATE-OBS
-			// card immediately before the first COMMENT card, or the END card, whichever comes first.
+			// card immediately before the first DATE-OBS card, or the END card, whichever comes first.
 			var newCardList []fitsio.Card
 			for i, card := range cardList {
-				if card.Name == "COMMENT" || card.Name == "END" {
+				if card.Name == "DATE-OBS" || card.Name == "END" {
 					newCardList = cardList[0:i]
 					newCardList = slices.Concat(newCardList, dateObsCardSlice)
 					newCardList = slices.Concat(newCardList, cardList[i:])
 					break
 				}
 			}
-
 			// Replace the old cards with the new set, now augmented with a DATE-OBS card.
 			hdu.(*fitsio.PrimaryHDU).Hdr.Cards = newCardList
-		} else {
-			hdu.Header().Set("DATE-OBS", myWin.timestamps[i], "GPS: IotaGFT and Iota FITS reader")
 		}
 
 		// It is essential to reset the 'write point' to the beginning of the file,
@@ -640,17 +715,96 @@ func addTimestampsToFitsFiles() {
 		if err != nil {
 			log.Println(err)
 		}
-		i += 1
+		k += 1
 
 		f.Close()
 
 		_ = fits.Close()
 	}
+
 	msg := fmt.Sprintf("\nAll timestamps have been added to the file.\n\n"+
 		"left edge time uncertainty estimate: %0.6f seconds\n\n"+
 		"right edge uncertainty estimate: %0.6f seconds\n\n",
 		myWin.leftGoalpostStats.edgeSigma, myWin.rightGoalpostStats.edgeSigma)
 	dialog.ShowInformation("Add timestamps report:", msg, myWin.parentWindow)
+}
+
+func analyzeTimeStepsAndImproveFrameTimeEstimate() int {
+	// Calculate sysTime deltas
+	myWin.sysTimeDeltaSeconds = []float64{}
+	for i := range len(myWin.sysTimes) - 1 {
+		myWin.sysTimeDeltaSeconds = append(myWin.sysTimeDeltaSeconds, myWin.sysTimes[i+1].Sub(myWin.sysTimes[i]).Seconds())
+	}
+
+	myWin.timeStepSeconds, _ = stats.Median(myWin.sysTimeDeltaSeconds) // First approximation - will be updated
+	log.Println("\ntimeStepSeconds:", myWin.timeStepSeconds, "(from median)")
+	numGaps, numCadenceErrors, numDroppedFrames := improveTimeStepAndDetectTimingErrors()
+	log.Println("numGaps:", numGaps, "numCadenceErrors:", numCadenceErrors, "numDroppedFrames:", numDroppedFrames)
+	return numDroppedFrames
+}
+
+func droppedFrame(delta float64) bool {
+	droppedFrameHigh := myWin.timeStepSeconds * 1.8
+	return delta > droppedFrameHigh
+}
+
+func goodFrame(delta float64) bool {
+	goodFrameLow := myWin.timeStepSeconds * 0.8
+	goodFrameHigh := myWin.timeStepSeconds * 1.2
+	return delta >= goodFrameLow && delta <= goodFrameHigh
+}
+
+//func cadenceError(delta float64) bool {
+//	cadenceHigh := myWin.timeStepSeconds * 1.2
+//	cadenceLow := myWin.timeStepSeconds * 0.8
+//	return delta > cadenceHigh || delta < cadenceLow
+//}
+
+func improveTimeStepAndDetectTimingErrors() (int, int, int) {
+	var goodTimeSteps []float64
+	myWin.gapIndices = []int{}
+	myWin.gapWidth = []int{}
+
+	var newFitsFilePaths []string
+	var newLightcurve []float64
+	numGaps := 0
+	numCadenceErrors := 0
+	for i := range myWin.sysTimeDeltaSeconds {
+		newFitsFilePaths = append(newFitsFilePaths, myWin.fitsFilePaths[i])
+		newLightcurve = append(newLightcurve, myWin.lightcurve[i])
+		if goodFrame(myWin.sysTimeDeltaSeconds[i]) {
+			goodTimeSteps = append(goodTimeSteps, myWin.sysTimeDeltaSeconds[i])
+		} else {
+			// We have either dropped frame(s) or a cadence error (which are fatal)
+			if droppedFrame(myWin.sysTimeDeltaSeconds[i]) {
+				numFramesInGap := int(math.Round(myWin.sysTimeDeltaSeconds[i]/myWin.timeStepSeconds)) - 1
+				for range numFramesInGap {
+					newFitsFilePaths = append(newFitsFilePaths, "droppedFrame")
+					newLightcurve = append(newLightcurve, -1000)
+				}
+				numGaps += 1
+				myWin.gapIndices = append(myWin.gapIndices, i)
+			} else {
+				numCadenceErrors += 1
+			}
+		}
+	}
+	newLightcurve = append(newLightcurve, myWin.lightcurve[len(myWin.lightcurve)-1])
+	newFitsFilePaths = append(newFitsFilePaths, myWin.fitsFilePaths[len(myWin.fitsFilePaths)-1])
+
+	myWin.lightcurve = newLightcurve
+	myWin.fitsFilePaths = newFitsFilePaths
+
+	myWin.timeStepSeconds, _ = stats.Mean(goodTimeSteps)
+	log.Println("\ntimeStepSeconds:", myWin.timeStepSeconds, " (improved)\n")
+
+	// Compute number of frames in each gap
+	var numDroppedFrames = 0
+	for _, gapIndex := range myWin.gapIndices {
+		numFramesInGap := int(math.Round(myWin.sysTimeDeltaSeconds[gapIndex]/myWin.timeStepSeconds)) - 1
+		numDroppedFrames += numFramesInGap
+	}
+	return numGaps, numCadenceErrors, numDroppedFrames
 }
 
 func initializeConfig(running bool) {
@@ -728,6 +882,7 @@ func displayFitsImage() fyne.CanvasObject {
 	imageToUse, _, timestamp := getFitsImageFromFilePath(myWin.fitsFilePaths[myWin.fileIndex])
 
 	if imageToUse == nil {
+		myWin.timestampLabel.Text = ""
 		return nil
 	}
 
@@ -905,6 +1060,11 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 	trace("")
 	// An important side effect of this function: it fills the myWin.displayBuffer []byte
 
+	if filePath == "droppedFrame" {
+		myWin.centerContent.Objects[0] = canvas.NewRectangle(color.Black)
+		return nil, nil, ""
+	}
+
 	f := openFitsFile(filePath)
 	myWin.primaryHDU = f.HDU(0)
 	metaData, timestamp := formatMetaData(myWin.primaryHDU)
@@ -996,7 +1156,7 @@ func formatMetaData(primaryHDU fitsio.HDU) ([]string, string) {
 			line = fmt.Sprintf("%8s: %8v (%s)\n", card.Name, card.Value, card.Comment)
 			metaDataText = append(metaDataText, line)
 		}
-		if card.Name == "DATE-OBS" {
+		if card.Name == "DATE-OBS" && !timestampFound { // Use first DATE-OBS card found as timestamp
 			timestampFound = true
 			myWin.timestamp = fmt.Sprintf("%v", card.Value)
 			myWin.timestamp = strings.Replace(myWin.timestamp, "T", " ", 1)
