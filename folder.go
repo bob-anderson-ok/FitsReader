@@ -92,15 +92,16 @@ func processChosenFolderString(path string) {
 		myWin.fileSlider.SetValue(0)
 	}
 	if len(myWin.fitsFilePaths) > 0 {
-		//if !alreadyHasIotaTimestamps(processedByIotaUtilities) && myWin.addFlashTimestampsCheckbox.Checked {
-		if myWin.addFlashTimestampsCheckbox.Checked {
-			//if true {
-			displayFitsImage()
-			readEdgeTimeFile(path)
-			if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
-				buildFlashLightcurve()
-			}
-		}
+		processNewFolder()
+		//getFrameTimeFromSystemTimestamps(true)
+		//if myWin.addFlashTimestampsCheckbox.Checked {
+		//	//if true {
+		//	displayFitsImage()
+		//	readEdgeTimeFile(path)
+		//	if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
+		//		buildFlashLightcurve()
+		//	}
+		//}
 		displayFitsImage()
 	}
 }
@@ -198,6 +199,7 @@ func processFitsFolderPickedFromHistory(path string) {
 	initializeImages()
 	myWin.fileSlider.SetValue(0)
 
+	processNewFolder()
 	if len(myWin.fitsFilePaths) > 0 {
 		displayFitsImage()
 	}
@@ -206,9 +208,9 @@ func processFitsFolderPickedFromHistory(path string) {
 	//if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
 	//	buildFlashLightcurve()
 	//}
-	if myWin.addFlashTimestampsCheckbox.Checked {
-		buildFlashLightcurve()
-	}
+	//if myWin.addFlashTimestampsCheckbox.Checked {
+	//	buildFlashLightcurve()
+	//}
 }
 
 func openFileBrowser() {
@@ -267,12 +269,21 @@ func readEdgeTimeFile(path string) {
 			bob := strings.Split(lines, "\n")
 
 			for _, line := range bob {
-				if !strings.Contains(line, "Z") {
-					line += "Z" // Add a terminating Z if the timestamp did not already indicate that it was a UTC value
-				}
-				if strings.Contains(line, "on") {
-					onLineParts := strings.Split(line, "on  ")
-					onTimes = append(onTimes, onLineParts[1])
+				if strings.Contains(line, "|") { // Valid IotaGFT edge time format
+					if strings.Contains(line, "on") {
+						parts := strings.Split(line, "|")
+						myWin.gpsUtcOffsetString = parts[1]
+						onLineParts := strings.Split(parts[0], "on  ")
+						onTimes = append(onTimes, onLineParts[1])
+					}
+				} else { // Legacy format - just in case
+					if !strings.Contains(line, "Z") {
+						line += "Z" // Add a terminating Z if the timestamp did not already indicate that it was a UTC value
+					}
+					if strings.Contains(line, "on") {
+						onLineParts := strings.Split(line, "on  ")
+						onTimes = append(onTimes, onLineParts[1])
+					}
 				}
 			}
 			if len(onTimes) < 2 {
@@ -298,6 +309,7 @@ func processFolderSelection(path string) {
 		path = ""
 	}
 	myWin.folderSelected = path
+
 	if path != "" {
 		addPathToHistory(path) // ... only adds path if not already there
 		saveFolderHistory()
@@ -305,12 +317,17 @@ func processFolderSelection(path string) {
 	myWin.selectionMade = true
 	myWin.folderSelectWin.Close()
 
+	myWin.fitsFilePaths = getFitsFilenames(path)
+	processNewFolder()
+
 	if myWin.addFlashTimestampsCheckbox.Checked {
 		myWin.leftGoalpostTimestamp = ""
 		myWin.rightGoalpostTimestamp = ""
 		readEdgeTimeFile(path)
 		if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
-			buildFlashLightcurve()
+			//buildFlashLightcurve()
+			addTimestampsToFitsFiles()
+
 		}
 	}
 }
@@ -375,7 +392,6 @@ func chooseFitsFolder() {
 	myWin.fileBrowserRequested = false
 
 	if myWin.folderSelected != "" {
-		myWin.lightcurve = make([]float64, 0)
 		processFitsFolderPickedFromHistory(myWin.folderSelected)
 	}
 }

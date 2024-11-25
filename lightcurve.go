@@ -17,11 +17,11 @@ import (
 
 func showFlashLightcurve() {
 
-	n := len(myWin.lightcurve)
-	if n == 0 {
-		readEdgeTimeFile(myWin.folderSelected)
-		buildFlashLightcurve()
-	}
+	//n := len(myWin.lightcurve)
+	//if n == 0 {
+	//	readEdgeTimeFile(myWin.folderSelected)
+	//	buildFlashLightcurve()
+	//}
 
 	buildPlot() // Writes flashLightcurve.png in current working directory
 
@@ -149,14 +149,11 @@ func processLoopPointUsageAnswer(useLoopPoints bool) {
 }
 
 func pixelSum() float64 {
-	//kind := myWin.imageKind
 	var pixelSum float64
 
-	//switch kind {
-	//case "Gray":
-	bob := myWin.primaryHDU.(fitsio.Image).Raw()
-	for i := 0; i < len(bob); i += 1 {
-		pixelSum += float64(bob[i])
+	imagePixels := myWin.primaryHDU.(fitsio.Image).Raw()
+	for i := 0; i < len(imagePixels); i += 1 {
+		pixelSum += float64(imagePixels[i])
 	}
 	return pixelSum
 }

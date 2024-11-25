@@ -51,7 +51,6 @@ func playLightcurveForward() {
 			myWin.autoPlayEnabled = false
 			continue
 		}
-		// This flag will become true after file has been read and displayed by displayFitsImage()
 		myWin.waitingForFileRead = true
 		// This will increment myWin.fileIndex and invoke getFItsImage() to display the image from that file
 		processForwardOneFrame()
@@ -96,7 +95,6 @@ func playForward(loop bool) {
 				myWin.fileIndex = myWin.loopStartIndex - 1
 			}
 		}
-		// This flag will become true after file has been read and displayed by displayFitsImage()
 		myWin.waitingForFileRead = true
 		// This will increment myWin.fileIndex and invoke getFItsImage() to display the image from that file
 		processForwardOneFrame()
@@ -175,7 +173,6 @@ func playBackward(loop bool) {
 				myWin.fileIndex = myWin.loopStartIndex + 1
 			}
 		}
-		// This flag will become true after file has been read and displayed by displayFitsImage()
 		myWin.waitingForFileRead = true
 		// This will decrement myWin.fileIndex and invoke getFItsImage() to display the image from that file
 		processBackOneFrame()

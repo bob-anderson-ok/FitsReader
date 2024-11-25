@@ -31,6 +31,7 @@ import (
 )
 
 type Config struct {
+	gpsUtcOffsetString         string
 	cmdLineFolder              string
 	reportCount                int
 	buildLightcurve            bool
@@ -116,7 +117,9 @@ type Config struct {
 	hist                       []int
 }
 
-const version = " 1.4.7"
+const version = " 1.4.8"
+
+const droppedFrameString = "droppedFrameString"
 
 const edgeTimesFileName = "FLASH_EDGE_TIMES.txt"
 
@@ -177,12 +180,16 @@ func copyFile(sourcePath, destPath string) error {
 }
 
 func main() {
-	var err error
-	traceFile, err = os.OpenFile(traceFileName, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		log.Fatal(err)
+	if false {
+		var err error
+		traceFile, err = os.OpenFile(traceFileName, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer traceFile.Close()
+	} else {
+		traceFile = os.Stdout
 	}
-	defer traceFile.Close()
 
 	//traceFile = os.Stdout // Use this in place of the above traceFile setting to write to console only
 
@@ -296,8 +303,8 @@ func main() {
 	leftItem.Add(layout.NewSpacer())
 
 	//leftItem.Add(widget.NewButton("Build flash lightcurve", func() { buildFlashLightcurve() }))
-	leftItem.Add(widget.NewButton("Do timestamp insertion", func() { showFlashLightcurve() }))
-	myWin.addFlashTimestampsCheckbox = widget.NewCheck("enable auto-timestamp-insertion", addFlashTimestamps)
+	leftItem.Add(widget.NewButton("Do timestamp insertion", func() { addTimestampsToFitsFiles() }))
+	myWin.addFlashTimestampsCheckbox = widget.NewCheck("enable auto-timestamp-insertion", toggleAutoAddTimestampsCheckbox)
 	checkState := myWin.App.Preferences().BoolWithFallback("EnableAutoTimestampInsertion", true)
 	myWin.addFlashTimestampsCheckbox.SetChecked(checkState)
 	leftItem.Add(myWin.addFlashTimestampsCheckbox)
@@ -428,8 +435,6 @@ func doXaxis(img, grayImage image.Image, xmax, y int) {
 
 func convertImageToGray(img image.Image) (grayImage image.Image) {
 	//start := time.Now()
-	//var oldColor color.Color
-	//var newColor color.Gray
 	trace("")
 	bounds := img.Bounds()
 	grayImage = image.NewGray(bounds)
@@ -441,11 +446,6 @@ func convertImageToGray(img image.Image) (grayImage image.Image) {
 			defer wg.Done()
 			doXaxis(img, grayImage, bounds.Max.X, y)
 		}()
-		//for x := 0; x < bounds.Max.X; x++ {
-		//	oldColor = img.At(x, y) // This could be Gray|Gray16|Gray32|Gray64
-		//	newColor = color.GrayModel.Convert(oldColor).(color.Gray)
-		//	grayImage.(*image.Gray).Set(x, y, newColor)
-		//}
 	}
 	wg.Wait()
 	//elapsed := time.Since(start)
@@ -466,34 +466,39 @@ func convertImageToGray(img image.Image) (grayImage image.Image) {
 //	return nil
 //}
 
-func buildFlashLightcurve() {
-	trace("")
-	if myWin.numFiles == 0 {
-		return // There are no frames to process
-	}
-	if myWin.loopStartIndex >= 0 && myWin.loopEndIndex >= 0 {
-		askIfLoopPointsAreToBeUsed()
-		return
-	} else {
-		myWin.lightCurveStartIndex = 0
-		myWin.lightCurveEndIndex = myWin.numFiles - 1
-	}
-	runLightcurveAcquisition()
-	addTimestampsToFitsFiles()
-	myWin.leftGoalpostTimestamp = ""
-	myWin.rightGoalpostTimestamp = ""
-}
+//func buildFlashLightcurve() {
+//	trace("")
+//
+//	if !processNewFolder() {
+//		log.Println("processNewFolder failed.")
+//	}
+//
+//	if myWin.numFiles == 0 {
+//		return // There are no frames to process
+//	}
+//	if myWin.loopStartIndex >= 0 && myWin.loopEndIndex >= 0 {
+//		askIfLoopPointsAreToBeUsed()
+//		return
+//	} else {
+//		myWin.lightCurveStartIndex = 0
+//		myWin.lightCurveEndIndex = myWin.numFiles - 1
+//	}
+//	runLightcurveAcquisition()
+//	addTimestampsToFitsFiles()
+//	myWin.leftGoalpostTimestamp = ""
+//	myWin.rightGoalpostTimestamp = ""
+//}
 
 func runLightcurveAcquisition() {
 	//fmt.Printf("\n\nframes indexed from %d to %d inclusive will be used to build flash lightcurve\n",
 	//	myWin.lightCurveStartIndex, myWin.lightCurveEndIndex)
 	trace("")
 	myWin.lightcurve = []float64{} // Clear the lightcurve slice
-	myWin.lcIndices = []int{}      // and the corresponding indices
+	myWin.lcIndices = []int{}      // and the corresponding file indices
 
 	myWin.sysTimes = []time.Time{} // Slice to hold SharpCap reported system times
 
-	// This records the first frame as a side effect, but only if the slider changes value, so we force that.
+	// This displays the first frame as a side effect, but only if the slider changes value, so we force that.
 	myWin.fileSlider.SetValue(float64(myWin.lightCurveEndIndex))
 
 	// During the "play forward", a lightcurve will be calculated whenever the following flag is true
@@ -505,10 +510,7 @@ func runLightcurveAcquisition() {
 	playLightcurveForward()
 	myWin.buildLightcurve = false
 
-	//showFlashLightcurve()
 	findFlashEdges()
-
-	//fmt.Println("\nEnd of build lightcurve")
 }
 
 //func alreadyHasIotaTimestamps(processedStr string) bool {
@@ -532,53 +534,56 @@ func runLightcurveAcquisition() {
 //	return dateObsCard.Comment == processedStr
 //}
 
-func addFlashTimestamps(_ bool) {
+func toggleAutoAddTimestampsCheckbox(_ bool) {
 	trace("")
 	myWin.App.Preferences().SetBool("EnableAutoTimestampInsertion", myWin.addFlashTimestampsCheckbox.Checked)
 }
 
-func getFrameTimeFromSystemTimestamps() (bool, int) {
-	for _, frameFile := range myWin.fitsFilePaths {
-		f, err := os.OpenFile(frameFile, os.O_RDWR, 0644)
-		if err != nil {
-			log.Fatalf("could not open file: %+v", err)
-		}
-
-		fits, err := fitsio.Open(f)
-
-		if err != nil {
-			log.Printf("\nCould not open FITS file: %+v\n", err)
-			return false, 0
-		}
-
-		hdu := fits.HDU(0)
-
-		dateObsCard := hdu.Header().Get("DATE-OBS")
-		if dateObsCard == nil {
-			// A SharpCap capture always has a DATE-OBS card. We depend on this, so
-			// cannot proceed if missing
-			log.Println("\nCould not find a DATE-OBS card. This is required.")
-			return false, 0
-		}
-
-		sysTimeString := fmt.Sprintf("%v", dateObsCard.Value) + "Z"
-		sysTime, err := time.Parse(time.RFC3339, sysTimeString)
-		if err != nil {
-			log.Printf("\nCould not parse sysTimeString %s: %+v\n", sysTimeString, err)
-			return false, 0
-		}
-		myWin.sysTimes = append(myWin.sysTimes, sysTime)
-	}
-	// The following call updates myWin.timeStepSeconds, detects drop and cadence errors
-	numFramesDroppedInTimeZone := analyzeTimeStepsAndImproveFrameTimeEstimate()
-	showTimePlot()
-	return true, numFramesDroppedInTimeZone
-}
+//func getFrameTimeFromSystemTimestamps(haveLightcurve bool) (bool, int) {
+//	for _, frameFile := range myWin.fitsFilePaths {
+//		if frameFile == droppedFrameString {
+//			continue
+//		}
+//		f, err := os.OpenFile(frameFile, os.O_RDWR, 0644)
+//		if err != nil {
+//			log.Fatalf("could not open file: %+v", err)
+//		}
+//
+//		fits, err := fitsio.Open(f)
+//
+//		if err != nil {
+//			log.Printf("\nCould not open FITS file: %+v\n", err)
+//			return false, 0
+//		}
+//
+//		hdu := fits.HDU(0)
+//
+//		dateObsCard := hdu.Header().Get("DATE-OBS")
+//		if dateObsCard == nil {
+//			// A SharpCap capture always has a DATE-OBS card. We depend on this, so
+//			// cannot proceed if missing
+//			log.Println("\nCould not find a DATE-OBS card. This is required.")
+//			return false, 0
+//		}
+//
+//		sysTimeString := fmt.Sprintf("%v", dateObsCard.Value) + "Z"
+//		sysTime, err := time.Parse(time.RFC3339, sysTimeString)
+//		if err != nil {
+//			log.Printf("\nCould not parse sysTimeString %s: %+v\n", sysTimeString, err)
+//			return false, 0
+//		}
+//		myWin.sysTimes = append(myWin.sysTimes, sysTime)
+//	}
+//	// The following call updates myWin.timeStepSeconds, detects drop and cadence errors
+//	numDroppedFrames := analyzeTimeStepsAndImproveFrameTimeEstimate(haveLightcurve)
+//	showTimePlot()
+//	return true, numDroppedFrames
+//}
 
 func addTimestampsToFitsFiles() {
 	trace("")
 
-	frameTimeFromSystemTimestampsIsValid, numDroppedFramesInTimingZone := getFrameTimeFromSystemTimestamps()
+	readEdgeTimeFile(myWin.folderSelected)
 
 	log.Printf("\n left goalpost edge at %0.6f\n", myWin.leftGoalpostStats.edgeAt)
 	log.Printf("right goalpost edge at %0.6f\n", myWin.rightGoalpostStats.edgeAt)
@@ -597,16 +602,18 @@ func addTimestampsToFitsFiles() {
 		log.Println("right goalpost occurred @", rightFlashTime)
 	}
 
-	deltaFlashTime := rightFlashTime.Sub(leftFlashTime)
-	var frameTime float64
-	if frameTimeFromSystemTimestampsIsValid {
-		frameTime = myWin.timeStepSeconds
-		log.Printf("\nframe time (from system timestamps): %0.6f\n\n", frameTime)
-	} else {
-		frameTime = float64(deltaFlashTime.Nanoseconds()) / 1_000_000_000 /
-			(myWin.rightGoalpostStats.edgeAt - myWin.leftGoalpostStats.edgeAt + float64(numDroppedFramesInTimingZone))
-		log.Printf("\nframe time (from flash edges): %0.6f\n\n", frameTime)
-	}
+	//deltaFlashTime := rightFlashTime.Sub(leftFlashTime)
+	//var frameTime float64
+	//if frameTimeFromSystemTimestampsIsValid {
+	//	frameTime = myWin.timeStepSeconds
+	//	log.Printf("\nframe time (from system timestamps): %0.6f\n\n", frameTime)
+	//} else {
+	//	frameTime = float64(deltaFlashTime.Nanoseconds()) / 1_000_000_000 /
+	//		(myWin.rightGoalpostStats.edgeAt - myWin.leftGoalpostStats.edgeAt + float64(numDroppedFrames))
+	//	log.Printf("\nframe time (from flash edges): %0.6f\n\n", frameTime)
+	//}
+
+	frameTime := myWin.timeStepSeconds
 
 	pwmUncertainty := 0.000032 / 2 // This is correct(ish) only for the IOTA-GFT running the pwm at 31.36 kHz
 	myWin.leftGoalpostStats.edgeSigma *= frameTime
@@ -618,15 +625,15 @@ func addTimestampsToFitsFiles() {
 	t0Delta := time.Duration(myWin.leftGoalpostStats.edgeAt * frameTime * 1_000_000_000)
 	t0 := leftFlashTime.Add(-t0Delta)
 	myWin.timestamps = make([]string, 0)
-	for i := range myWin.lightcurve { // TODO Add count of all dropped frames
+	for i := range myWin.lightcurve {
 		tn := t0.Add(time.Duration(float64(i) * frameTime * 1_000_000_000))
 		tsStr := tn.Format("2006-01-02T15:04:05.000000")
 		myWin.timestamps = append(myWin.timestamps, tsStr)
-	} // Some of these won't get used
+	} // Some of these won't get used - those will be of the dropped frames
 
 	k := 0 // Indexes through timeStamps
 	for _, frameFile := range myWin.fitsFilePaths {
-		if frameFile == "droppedFrame" {
+		if frameFile == droppedFrameString {
 			k += 1 // Skip this file
 			continue
 		}
@@ -666,12 +673,15 @@ func addTimestampsToFitsFiles() {
 		var indexOfSharpCapDateObsCard = -1
 		for i, card := range cardList {
 			if card.Name == "DATE-OBS" {
-				if card.Comment != processedByIotaUtilities {
+				if card.Comment != processedByIotaUtilities { // Implies it came from SharpCap
 					indexOfSharpCapDateObsCard = i
+					break
 				}
-				break
 			}
 		}
+
+		dateObsCardSlice := make([]fitsio.Card, 1)
+		guOffsetCardSlice := make([]fitsio.Card, 1)
 
 		if indexOfSharpCapDateObsCard == -1 { // First DATE-OBS card is from us
 			hdu.Header().Set("DATE-OBS", myWin.timestamps[k], processedByIotaUtilities)
@@ -681,23 +691,45 @@ func addTimestampsToFitsFiles() {
 			dateObsCard.Name = "DATE-OBS"
 			dateObsCard.Value = myWin.timestamps[k]
 			dateObsCard.Comment = processedByIotaUtilities
-			dateObsCardSlice := make([]fitsio.Card, 1)
 			dateObsCardSlice[0] = *dateObsCard
-
-			// We will form a complete new card list from the old one by inserting the new DATE-OBS
-			// card immediately before the first DATE-OBS card, or the END card, whichever comes first.
-			var newCardList []fitsio.Card
-			for i, card := range cardList {
-				if card.Name == "DATE-OBS" || card.Name == "END" {
-					newCardList = cardList[0:i]
-					newCardList = slices.Concat(newCardList, dateObsCardSlice)
-					newCardList = slices.Concat(newCardList, cardList[i:])
-					break
-				}
-			}
-			// Replace the old cards with the new set, now augmented with a DATE-OBS card.
-			hdu.(*fitsio.PrimaryHDU).Hdr.Cards = newCardList
 		}
+
+		// Check GUOFFSET card already present
+		indexOfguOffsetCard := -1
+		for i, card := range cardList {
+			if card.Name == "GUOFFSET" {
+				indexOfguOffsetCard = i
+				hdu.Header().Set("GUOFFSET", myWin.gpsUtcOffsetString, "GPS-UTC offset (leap second correction)")
+				break
+			}
+		}
+		// Make a GUOFFSET card
+		if indexOfguOffsetCard == -1 {
+			guOffsetCard := new(fitsio.Card)
+			guOffsetCard.Name = "GUOFFSET"
+			guOffsetCard.Value = myWin.gpsUtcOffsetString
+			guOffsetCard.Comment = "GPS-UTC offset (leap second correction)"
+			guOffsetCardSlice[0] = *guOffsetCard
+		}
+
+		// We will form a complete new card list from the old one by inserting the new DATE-OBS
+		// card immediately before the first DATE-OBS card, or the END card, whichever comes first.
+		var newCardList []fitsio.Card
+		for i, card := range cardList {
+			if card.Name == "DATE-OBS" || card.Name == "END" {
+				newCardList = cardList[0:i]
+				if indexOfSharpCapDateObsCard != -1 { // There is a new card
+					newCardList = slices.Concat(newCardList, dateObsCardSlice)
+				}
+				if indexOfguOffsetCard == -1 { // There is a new card
+					newCardList = slices.Concat(newCardList, guOffsetCardSlice)
+				}
+				newCardList = slices.Concat(newCardList, cardList[i:])
+				break
+			}
+		}
+		// Replace the old cards with the new set, now augmented with a DATE-OBS card.
+		hdu.(*fitsio.PrimaryHDU).Hdr.Cards = newCardList
 
 		// It is essential to reset the 'write point' to the beginning of the file,
 		// otherwise the outFile.Write(hdu) will simply append to the file (and be invisible to fits readers)
@@ -729,7 +761,7 @@ func addTimestampsToFitsFiles() {
 	dialog.ShowInformation("Add timestamps report:", msg, myWin.parentWindow)
 }
 
-func analyzeTimeStepsAndImproveFrameTimeEstimate() int {
+func analyzeTimeStepsAndImproveFrameTimeEstimate(haveLightcurve bool) int {
 	// Calculate sysTime deltas
 	myWin.sysTimeDeltaSeconds = []float64{}
 	for i := range len(myWin.sysTimes) - 1 {
@@ -738,29 +770,91 @@ func analyzeTimeStepsAndImproveFrameTimeEstimate() int {
 
 	myWin.timeStepSeconds, _ = stats.Median(myWin.sysTimeDeltaSeconds) // First approximation - will be updated
 	log.Println("\ntimeStepSeconds:", myWin.timeStepSeconds, "(from median)")
-	numGaps, numCadenceErrors, numDroppedFrames := improveTimeStepAndDetectTimingErrors()
+	numGaps, numCadenceErrors, numDroppedFrames := improveTimeStepAndDetectTimingErrors(haveLightcurve)
 	log.Println("numGaps:", numGaps, "numCadenceErrors:", numCadenceErrors, "numDroppedFrames:", numDroppedFrames)
 	return numDroppedFrames
 }
 
-func droppedFrame(delta float64) bool {
+func isDroppedFrame(delta float64) bool {
 	droppedFrameHigh := myWin.timeStepSeconds * 1.8
 	return delta > droppedFrameHigh
 }
 
-func goodFrame(delta float64) bool {
+func isGoodFrame(delta float64) bool {
 	goodFrameLow := myWin.timeStepSeconds * 0.8
 	goodFrameHigh := myWin.timeStepSeconds * 1.2
 	return delta >= goodFrameLow && delta <= goodFrameHigh
 }
 
-//func cadenceError(delta float64) bool {
+//func isCadenceError(delta float64) bool {
 //	cadenceHigh := myWin.timeStepSeconds * 1.2
 //	cadenceLow := myWin.timeStepSeconds * 0.8
 //	return delta > cadenceHigh || delta < cadenceLow
 //}
 
-func improveTimeStepAndDetectTimingErrors() (int, int, int) {
+func processNewFolder() bool {
+	trace("")
+
+	myWin.sysTimes = []time.Time{}
+	myWin.lightcurve = []float64{}
+	for _, frameFile := range myWin.fitsFilePaths {
+		f, err := os.OpenFile(frameFile, os.O_RDWR, 0644)
+		if err != nil {
+			log.Printf("could not open file: %+v", err)
+			return false
+		}
+
+		fits, err := fitsio.Open(f)
+
+		if err != nil {
+			log.Printf("\nCould not open FITS file: %+v\n", err)
+			return false
+		}
+
+		hdu := fits.HDU(0)
+
+		dateObsCard := hdu.Header().Get("DATE-OBS")
+		if dateObsCard == nil {
+			// A SharpCap capture always has a DATE-OBS card. We depend on this, so
+			// cannot proceed if missing
+			log.Println("\nCould not find a DATE-OBS card. This is required.")
+			log.Fatal("\nCould not find a DATE-OBS card in FITS file. This is required.")
+		}
+
+		sysTimeString := fmt.Sprintf("%v", dateObsCard.Value) + "Z"
+		sysTime, err := time.Parse(time.RFC3339, sysTimeString)
+		if err != nil {
+			log.Printf("\nCould not parse sysTimeString %s: %+v\n", sysTimeString, err)
+			return false
+		}
+		myWin.sysTimes = append(myWin.sysTimes, sysTime)
+
+		// Compute lightcurve point
+		myWin.primaryHDU = hdu // Needed by pixelSum() as implicit argument
+		goImage := myWin.primaryHDU.(fitsio.Image).Image()
+		goImage = convertImageToGray(goImage)
+		myWin.lightcurve = append(myWin.lightcurve, pixelSum())
+	}
+
+	findFlashEdges()
+
+	// At this point, we have the lightcurve computed assuming all frames are present and
+	// a list of the frame-to-frame time deltas that can be used to find dropped frames.
+
+	// Now we need to find and deal with dropped frames. The following routine
+	// finds dropped frames and rewrites both the fits file path list and the lightcurve
+	// to incorporate the dropped frames. It returns the number of dropped frames which we may
+	// want to popup in an alert box
+	numDroppedFrames := analyzeTimeStepsAndImproveFrameTimeEstimate(true)
+	if numDroppedFrames != 0 {
+		dialog.ShowInformation("Dropped frames report", "Some frames were dropped", myWin.parentWindow)
+	}
+	showTimePlot()
+	showFlashLightcurve()
+	return true
+}
+
+func improveTimeStepAndDetectTimingErrors(haveLightcurve bool) (int, int, int) {
 	var goodTimeSteps []float64
 	myWin.gapIndices = []int{}
 	myWin.gapWidth = []int{}
@@ -771,15 +865,17 @@ func improveTimeStepAndDetectTimingErrors() (int, int, int) {
 	numCadenceErrors := 0
 	for i := range myWin.sysTimeDeltaSeconds {
 		newFitsFilePaths = append(newFitsFilePaths, myWin.fitsFilePaths[i])
-		newLightcurve = append(newLightcurve, myWin.lightcurve[i])
-		if goodFrame(myWin.sysTimeDeltaSeconds[i]) {
+		if haveLightcurve {
+			newLightcurve = append(newLightcurve, myWin.lightcurve[i])
+		}
+		if isGoodFrame(myWin.sysTimeDeltaSeconds[i]) {
 			goodTimeSteps = append(goodTimeSteps, myWin.sysTimeDeltaSeconds[i])
 		} else {
 			// We have either dropped frame(s) or a cadence error (which are fatal)
-			if droppedFrame(myWin.sysTimeDeltaSeconds[i]) {
+			if isDroppedFrame(myWin.sysTimeDeltaSeconds[i]) {
 				numFramesInGap := int(math.Round(myWin.sysTimeDeltaSeconds[i]/myWin.timeStepSeconds)) - 1
 				for range numFramesInGap {
-					newFitsFilePaths = append(newFitsFilePaths, "droppedFrame")
+					newFitsFilePaths = append(newFitsFilePaths, droppedFrameString)
 					newLightcurve = append(newLightcurve, -1000)
 				}
 				numGaps += 1
@@ -789,14 +885,20 @@ func improveTimeStepAndDetectTimingErrors() (int, int, int) {
 			}
 		}
 	}
-	newLightcurve = append(newLightcurve, myWin.lightcurve[len(myWin.lightcurve)-1])
+
+	if haveLightcurve {
+		newLightcurve = append(newLightcurve, myWin.lightcurve[len(myWin.lightcurve)-1])
+	}
 	newFitsFilePaths = append(newFitsFilePaths, myWin.fitsFilePaths[len(myWin.fitsFilePaths)-1])
 
-	myWin.lightcurve = newLightcurve
+	if haveLightcurve {
+		myWin.lightcurve = newLightcurve
+	}
 	myWin.fitsFilePaths = newFitsFilePaths
 
 	myWin.timeStepSeconds, _ = stats.Mean(goodTimeSteps)
-	log.Println("\ntimeStepSeconds:", myWin.timeStepSeconds, " (improved)\n")
+	log.Println("\ntimeStepSeconds:", myWin.timeStepSeconds, " (improved)")
+	log.Println("")
 
 	// Compute number of frames in each gap
 	var numDroppedFrames = 0
@@ -1060,8 +1162,9 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 	trace("")
 	// An important side effect of this function: it fills the myWin.displayBuffer []byte
 
-	if filePath == "droppedFrame" {
+	if filePath == droppedFrameString {
 		myWin.centerContent.Objects[0] = canvas.NewRectangle(color.Black)
+		myWin.waitingForFileRead = false // Signal to any routine waiting for file read
 		return nil, nil, ""
 	}
 
