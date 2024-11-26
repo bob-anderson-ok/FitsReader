@@ -35,6 +35,7 @@ type EdgeStats struct {
 	pSNR                       float64
 	bSNR                       float64
 	aSNR                       float64
+	totalTimeErr               float64
 }
 
 func prettyPrintWing(wingName string, values []float64) {
@@ -160,6 +161,9 @@ func extractEdgeTimeAndStats(fc []float64, goalpost string, midFlashLevel float6
 	edgeStats.topStd = topStd
 	edgeStats.topMean = topMean
 
+	averagePixelValueInTop := topMean / float64(myWin.numPixels)
+	log.Printf("average pixel value in top: %0.1f", averagePixelValueInTop)
+
 	p := fc[transitionPoint+startingIndex]
 	delta := (topMean - p) / (topMean - bottomMean)
 
@@ -179,6 +183,15 @@ func extractEdgeTimeAndStats(fc []float64, goalpost string, midFlashLevel float6
 
 	adjustedSigmaFrame := math.Sqrt(sigmaFrameFromRatio*sigmaFrameFromRatio + sigmaFrame*sigmaFrame)
 	edgeStats.edgeSigma = adjustedSigmaFrame
+
+	if averagePixelValueInTop > maxAllowedFlashLevel {
+		myWin.flashIntensityValid = false
+		log.Println("!!! flash too bright !!!  Setting edgeSigma to 0.5")
+		edgeStats.edgeSigma = 0.5
+		adjustedSigmaFrame = 0.5
+		sigmaFrame = 0.5
+		sigmaFrameFromRatio = 0.5
+	}
 
 	if debugPrint {
 		log.Printf("\nA: %0.4f  B: %0.4f\n", bottomMean, topMean)

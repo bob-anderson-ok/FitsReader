@@ -31,6 +31,10 @@ import (
 )
 
 type Config struct {
+	numXpixels                 int64
+	numYpixels                 int64
+	numPixels                  int64
+	flashIntensityValid        bool
 	gpsUtcOffsetString         string
 	cmdLineFolder              string
 	reportCount                int
@@ -46,7 +50,10 @@ type Config struct {
 	sysTimeDeltaSeconds        []float64
 	gapIndices                 []int
 	gapWidth                   []int
-	timeStepSeconds            float64
+	frameTimeSeconds           float64
+	expTimeSeconds             float64
+	dateErrSeconds             float64
+	deadTimeSeconds            float64
 	lightCurveStartIndex       int
 	lightCurveEndIndex         int
 	displayBuffer              []byte
@@ -118,7 +125,9 @@ type Config struct {
 	hist                       []int
 }
 
-const version = " 1.4.9"
+const version = "1.5.1"
+
+const maxAllowedFlashLevel = 200.0
 
 const droppedFrameString = "droppedFrameString"
 
@@ -181,7 +190,7 @@ func copyFile(sourcePath, destPath string) error {
 }
 
 func main() {
-	if false {
+	if true { // change to false to redirect trace to console
 		var err error
 		traceFile, err = os.OpenFile(traceFileName, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
 		if err != nil {
@@ -192,20 +201,9 @@ func main() {
 		traceFile = os.Stdout
 	}
 
-	//traceFile = os.Stdout // Use this in place of the above traceFile setting to write to console only
-
 	trace("")
-	logFile, err := os.OpenFile(logFileName, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
-	if err != nil {
-		log.Fatal(err)
-	}
 
-	log.SetOutput(logFile)
-	//log.SetOutput(os.Stdout)  // Uncomment this to send all logs to console instead of a file
-	log.SetFlags(log.LstdFlags) // Add date and time as prefix
-	log.Printf("IOTA Fits Utility %s started...", version)
-	log.SetFlags(0) // Turn off all log prefixes
-	log.Println("")
+	startNewLogFile()
 
 	// We supply an ID (hopefully unique) because we need to use the preferences API
 	myApp := app.NewWithID("com.gmail.ok.anderson.bob")
@@ -230,6 +228,7 @@ func main() {
 		log.Println("")
 		log.Println("IotaGFTapp (or user) gave folder to process on command line as:", myWin.cmdLineFolder)
 		log.Println("")
+		myWin.folderSelected = myWin.cmdLineFolder
 	} else {
 		myWin.cmdLineFolder = ""
 	}
@@ -392,16 +391,33 @@ func main() {
 	myWin.centerContent = centerContent
 	w.SetContent(myWin.centerContent)
 	w.CenterOnScreen()
-	w.SetOnClosed(func() { processProgramClosed() })
+	//w.SetOnClosed(func() { closeLogFile() })
+	tidyHistoryList()
 	go delayedExecution()
 	w.ShowAndRun() // This blocks. Place no other code after this call.
 }
 
-func processProgramClosed() {
+func startNewLogFile() {
+	logFile, err := os.OpenFile(logFileName, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0644)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.SetOutput(logFile)
+	//log.SetOutput(os.Stdout)  // Uncomment this to send all logs to console instead of a file
+	log.SetFlags(log.LstdFlags) // Add date and time as prefix (so that next line gets time and date)
+	log.Printf("IOTA Fits Utility (version %s) log file started...", version)
+	log.SetFlags(0) // Turn off all log prefixes
+	log.Println("")
+}
+
+func closeLogFile() {
 	trace("")
 	log.Println("")
-	log.SetFlags(log.LstdFlags)
-	log.Printf("... IOTA FITS Utility %s closed.", version)
+	//log.Printf("in closeLogFile - myWin.FolderSelected: %s", myWin.folderSelected)
+	log.SetFlags(log.LstdFlags) // So that next line gets time and date
+	log.Printf("... IOTA FITS Utility %s finished timestamp insertion.", version)
+	log.SetFlags(0) // turn off all log prefixes
 	err := copyFile(logFileName, myWin.folderSelected+"\\"+logFileName)
 	if err != nil {
 		log.Printf(err.Error())
@@ -425,7 +441,7 @@ func delayedExecution() {
 }
 
 func doXaxis(img, grayImage image.Image, xmax, y int) {
-	trace("")
+	//trace("")
 	var oldColor color.Color
 	var newColor color.Gray
 	for x := 0; x < xmax; x++ {
@@ -437,7 +453,7 @@ func doXaxis(img, grayImage image.Image, xmax, y int) {
 
 func convertImageToGray(img image.Image) (grayImage image.Image) {
 	//start := time.Now()
-	trace("")
+	//trace("")
 	bounds := img.Bounds()
 	grayImage = image.NewGray(bounds)
 	var wg sync.WaitGroup
@@ -497,15 +513,25 @@ func addTimestampsToFitsFiles() {
 		log.Println("right goalpost occurred @", rightFlashTime)
 	}
 
-	frameTime := myWin.timeStepSeconds
+	frameTime := myWin.frameTimeSeconds
 
-	pwmUncertainty := 0.000032 / 2 // This is correct(ish) only for the IOTA-GFT running the pwm at 31.36 kHz
-	myWin.leftGoalpostStats.edgeSigma *= frameTime
-	myWin.leftGoalpostStats.edgeSigma += pwmUncertainty
-	myWin.rightGoalpostStats.edgeSigma *= frameTime
-	myWin.rightGoalpostStats.edgeSigma += pwmUncertainty
-	log.Printf(" left edge time uncertainty: %0.6f\n", myWin.leftGoalpostStats.edgeSigma)
-	log.Printf("right edge time uncertainty: %0.6f\n", myWin.rightGoalpostStats.edgeSigma)
+	pwmUncertainty := 0.000032 / 2                           // This is correct(ish) only for the IOTA-GFT running the pwm at 31.36 kHz
+	leftErr := myWin.leftGoalpostStats.edgeSigma * frameTime // Convert reading fraction to time (seconds)
+	leftErr += pwmUncertainty                                // Add time error from PWM of flash LED
+	rightErr := myWin.rightGoalpostStats.edgeSigma * frameTime
+	rightErr += pwmUncertainty
+	myWin.dateErrSeconds = math.Sqrt(leftErr*leftErr + rightErr*rightErr)
+	log.Println("")
+	if !myWin.flashIntensityValid {
+		log.Println("!!!!!!!! Flash was too bright. edge time errors set to frameTime / 2  !!!!!!!!!\n")
+	}
+	log.Printf(" left edge time uncertainty: %0.6f\n", leftErr)
+	log.Printf("right edge time uncertainty: %0.6f\n", rightErr)
+	log.Printf("total edge time uncertainty: %0.6f\n", myWin.dateErrSeconds)
+
+	myWin.leftGoalpostStats.totalTimeErr = leftErr
+	myWin.rightGoalpostStats.totalTimeErr = rightErr
+
 	t0Delta := time.Duration(myWin.leftGoalpostStats.edgeAt * frameTime * 1_000_000_000)
 	t0 := leftFlashTime.Add(-t0Delta)
 	myWin.timestamps = make([]string, 0)
@@ -541,6 +567,21 @@ func addTimestampsToFitsFiles() {
 
 		hdu := fits.HDU(0)
 
+		exptimeCard := hdu.Header().Get("EXPTIME")
+		if exptimeCard == nil {
+			// A SharpCap capture always has an EXPTIME card. We depend on this, so
+			// cannot proceed if missing
+			log.Println("\nCould not find an EXPTIME card. This is required.")
+			return
+		}
+		myWin.expTimeSeconds, err = strconv.ParseFloat(fmt.Sprintf("%v", exptimeCard.Value), 64)
+		if err != nil {
+			log.Printf("\nCould not parse EXPTIME card: %+v\n", err)
+			return
+		}
+
+		myWin.deadTimeSeconds = myWin.frameTimeSeconds - myWin.expTimeSeconds
+
 		dateObsCard := hdu.Header().Get("DATE-OBS")
 		if dateObsCard == nil {
 			// A SharpCap capture always has a DATE-OBS card. We depend on this, so
@@ -559,16 +600,16 @@ func addTimestampsToFitsFiles() {
 			if card.Name == "DATE-OBS" {
 				if card.Comment == processedByIotaUtilities { // Our card is first in the DATE-OBS sequence
 					iotaDateObsPresent = true
-					break
-				} else {
-					//indexOfSharpCapDateObsCard = i
-					break
 				}
+				break
 			}
 		}
 
 		dateObsCardSlice := make([]fitsio.Card, 1)
 		guOffsetCardSlice := make([]fitsio.Card, 1)
+		frameTimeCardSlice := make([]fitsio.Card, 1)
+		deadTimeCardSlice := make([]fitsio.Card, 1)
+		dateErrCardSlice := make([]fitsio.Card, 1)
 
 		if iotaDateObsPresent { // First DATE-OBS card is from us
 			hdu.Header().Set("DATE-OBS", myWin.timestamps[k], processedByIotaUtilities)
@@ -582,22 +623,88 @@ func addTimestampsToFitsFiles() {
 		}
 
 		// Check GUOFFSET card already present
-		indexOfguOffsetCard := -1
-		for i, card := range cardList {
+		guOffsetCardPresent := false
+		for _, card := range cardList {
 			if card.Name == "GUOFFSET" {
-				indexOfguOffsetCard = i
+				guOffsetCardPresent = true
 				hdu.Header().Set("GUOFFSET", myWin.gpsUtcOffsetString, "GPS-UTC offset (leap second correction)")
 				break
 			}
 		}
 
 		// Make a GUOFFSET card
-		if indexOfguOffsetCard == -1 {
+		if !guOffsetCardPresent {
 			guOffsetCard := new(fitsio.Card)
 			guOffsetCard.Name = "GUOFFSET"
 			guOffsetCard.Value = myWin.gpsUtcOffsetString
 			guOffsetCard.Comment = "GPS-UTC offset (leap second correction)"
 			guOffsetCardSlice[0] = *guOffsetCard
+		}
+
+		// Check FRM-TIME card already present
+		frameTimeCardPresent := false
+		for _, card := range cardList {
+			if card.Name == "FRM-TIME" {
+				frameTimeCardPresent = true
+				hdu.Header().Set("FRM-TIME",
+					fmt.Sprintf("%0.6f", myWin.frameTimeSeconds),
+					"frame time (seconds")
+				break
+			}
+		}
+
+		if !frameTimeCardPresent { // Make a FRM-TIME card
+			frameTimeCard := new(fitsio.Card)
+			frameTimeCard.Name = "FRM-TIME"
+			frameTimeCard.Value = fmt.Sprintf("%0.6f", myWin.frameTimeSeconds)
+			frameTimeCard.Comment = "frame time (seconds)"
+			frameTimeCardSlice[0] = *frameTimeCard
+		}
+
+		// Check DEADTIME card already present
+		deadTimeCardPresent := false
+		for _, card := range cardList {
+			if card.Name == "DEADTIME" {
+				deadTimeCardPresent = true
+				hdu.Header().Set("DEADTIME",
+					fmt.Sprintf("%0.6f", myWin.deadTimeSeconds),
+					"dead time (seconds")
+				break
+			}
+		}
+
+		if !deadTimeCardPresent { // Make a DEADTIME card
+			deadTimeCard := new(fitsio.Card)
+			deadTimeCard.Name = "DEADTIME"
+			deadTimeCard.Value = fmt.Sprintf("%0.6f", myWin.deadTimeSeconds)
+			deadTimeCard.Comment = "frame time (seconds)"
+			deadTimeCardSlice[0] = *deadTimeCard
+		}
+
+		// Check DATE-ERR card already present
+		var flashValidMsg string
+		if myWin.flashIntensityValid {
+			flashValidMsg = ""
+		} else {
+			flashValidMsg = " Flash too bright"
+		}
+		dateErrCardPresent := false
+		for _, card := range cardList {
+			if card.Name == "DATE-ERR" {
+				dateErrCardPresent = true
+				hdu.Header().Set("DATE-ERR",
+					fmt.Sprintf("%0.6f", myWin.dateErrSeconds),
+					"1 sigma time error (seconds)"+flashValidMsg)
+				break
+			}
+		}
+
+		if !dateErrCardPresent { // Make a DATE-ERR card
+			dateErrCard := new(fitsio.Card)
+			dateErrCard.Name = "DATE-ERR"
+			dateErrCard.Value = fmt.Sprintf("%0.6f", myWin.dateErrSeconds)
+			dateErrCard.Comment = "1 sigma time error (seconds)" + flashValidMsg
+			dateErrCardSlice[0] = *dateErrCard
 		}
 
 		// We will form a complete new card list from the old one by inserting the new DATE-OBS
@@ -609,7 +716,16 @@ func addTimestampsToFitsFiles() {
 				if !iotaDateObsPresent { // We need to insert a DATE-OBS card from us
 					newCardList = slices.Concat(newCardList, dateObsCardSlice)
 				}
-				if indexOfguOffsetCard == -1 { // There is a new card GUOFFSET card to be added
+				if !dateErrCardPresent {
+					newCardList = slices.Concat(newCardList, dateErrCardSlice)
+				}
+				if !frameTimeCardPresent {
+					newCardList = slices.Concat(newCardList, frameTimeCardSlice)
+				}
+				if !deadTimeCardPresent {
+					newCardList = slices.Concat(newCardList, deadTimeCardSlice)
+				}
+				if !guOffsetCardPresent { // There is a new card GUOFFSET card to be added
 					newCardList = slices.Concat(newCardList, guOffsetCardSlice)
 				}
 				newCardList = slices.Concat(newCardList, cardList[i:])
@@ -644,9 +760,11 @@ func addTimestampsToFitsFiles() {
 
 	msg := fmt.Sprintf("\nAll timestamps have been added to the file.\n\n"+
 		"left edge time uncertainty estimate: %0.6f seconds\n\n"+
-		"right edge uncertainty estimate: %0.6f seconds\n\n",
-		myWin.leftGoalpostStats.edgeSigma, myWin.rightGoalpostStats.edgeSigma)
+		"right edge uncertainty estimate: %0.6f seconds\n\n"+
+		"total edge uncertainty estimate: %0.6f seconds\n\n",
+		myWin.leftGoalpostStats.totalTimeErr, myWin.rightGoalpostStats.totalTimeErr, myWin.dateErrSeconds)
 	dialog.ShowInformation("Add timestamps report:", msg, myWin.parentWindow)
+	closeLogFile()
 }
 
 func analyzeTimeStepsAndImproveFrameTimeEstimate(haveLightcurve bool) int {
@@ -656,27 +774,28 @@ func analyzeTimeStepsAndImproveFrameTimeEstimate(haveLightcurve bool) int {
 		myWin.sysTimeDeltaSeconds = append(myWin.sysTimeDeltaSeconds, myWin.sysTimes[i+1].Sub(myWin.sysTimes[i]).Seconds())
 	}
 
-	myWin.timeStepSeconds, _ = stats.Median(myWin.sysTimeDeltaSeconds) // First approximation - will be updated
-	log.Println("\ntimeStepSeconds:", myWin.timeStepSeconds, "(from median)")
+	myWin.frameTimeSeconds, _ = stats.Median(myWin.sysTimeDeltaSeconds) // First approximation - will be updated
+	log.Println("\ntimeStepSeconds:", myWin.frameTimeSeconds, "(from median)")
 	numGaps, numCadenceErrors, numDroppedFrames := improveTimeStepAndDetectTimingErrors(haveLightcurve)
 	log.Println("numGaps:", numGaps, "numCadenceErrors:", numCadenceErrors, "numDroppedFrames:", numDroppedFrames)
 	return numDroppedFrames
 }
 
 func isDroppedFrame(delta float64) bool {
-	droppedFrameHigh := myWin.timeStepSeconds * 1.8
+	droppedFrameHigh := myWin.frameTimeSeconds * 1.8
 	return delta > droppedFrameHigh
 }
 
 func isGoodFrame(delta float64) bool {
-	goodFrameLow := myWin.timeStepSeconds * 0.8
-	goodFrameHigh := myWin.timeStepSeconds * 1.2
+	goodFrameLow := myWin.frameTimeSeconds * 0.8
+	goodFrameHigh := myWin.frameTimeSeconds * 1.2
 	return delta >= goodFrameLow && delta <= goodFrameHigh
 }
 
 func processNewFolder() bool {
 	trace("")
-
+	startNewLogFile()
+	log.Printf("\nProcessing: %s\n", myWin.folderSelected)
 	myWin.numDroppedFrames = 0
 	myWin.sysTimes = []time.Time{}
 	myWin.lightcurve = []float64{}
@@ -695,6 +814,14 @@ func processNewFolder() bool {
 		}
 
 		hdu := fits.HDU(0)
+
+		xAxisValue := hdu.Header().Get("NAXIS1").Value
+		myWin.numXpixels, err = strconv.ParseInt(fmt.Sprintf("%v", xAxisValue), 10, 64)
+
+		yAxisValue := hdu.Header().Get("NAXIS2").Value
+		myWin.numYpixels, err = strconv.ParseInt(fmt.Sprintf("%v", yAxisValue), 10, 64)
+
+		myWin.numPixels = myWin.numXpixels * myWin.numYpixels
 
 		dateObsCard := hdu.Header().Get("DATE-OBS")
 		if dateObsCard == nil {
@@ -719,8 +846,13 @@ func processNewFolder() bool {
 		myWin.lightcurve = append(myWin.lightcurve, pixelSum())
 	}
 
-	findFlashEdges()
+	myWin.flashIntensityValid = true
 
+	findFlashEdges() // Checks flash intensity at top of left and right goalposts
+
+	if !myWin.flashIntensityValid {
+		dialog.ShowInformation("Flash intensity report", "Flash intensity is too bright.", myWin.parentWindow)
+	}
 	// At this point, we have the lightcurve computed assuming all frames are present and
 	// a list of the frame-to-frame time deltas that can be used to find dropped frames.
 
@@ -738,6 +870,7 @@ func processNewFolder() bool {
 	}
 	showTimePlot()
 	showFlashLightcurve()
+
 	if myWin.addFlashTimestampsCheckbox.Checked {
 		addTimestampsToFitsFiles()
 	}
@@ -763,7 +896,7 @@ func improveTimeStepAndDetectTimingErrors(haveLightcurve bool) (int, int, int) {
 		} else {
 			// We have either dropped frame(s) or a cadence error (which are fatal)
 			if isDroppedFrame(myWin.sysTimeDeltaSeconds[i]) {
-				numFramesInGap := int(math.Round(myWin.sysTimeDeltaSeconds[i]/myWin.timeStepSeconds)) - 1
+				numFramesInGap := int(math.Round(myWin.sysTimeDeltaSeconds[i]/myWin.frameTimeSeconds)) - 1
 				for range numFramesInGap {
 					newFitsFilePaths = append(newFitsFilePaths, droppedFrameString)
 					newLightcurve = append(newLightcurve, -1000)
@@ -786,14 +919,14 @@ func improveTimeStepAndDetectTimingErrors(haveLightcurve bool) (int, int, int) {
 	}
 	myWin.fitsFilePaths = newFitsFilePaths
 
-	myWin.timeStepSeconds, _ = stats.Mean(goodTimeSteps)
-	log.Println("\ntimeStepSeconds:", myWin.timeStepSeconds, " (improved)")
+	myWin.frameTimeSeconds, _ = stats.Mean(goodTimeSteps)
+	log.Println("\ntimeStepSeconds:", myWin.frameTimeSeconds, " (improved)")
 	log.Println("")
 
 	// Compute number of frames in each gap
 	var numDroppedFrames = 0
 	for _, gapIndex := range myWin.gapIndices {
-		numFramesInGap := int(math.Round(myWin.sysTimeDeltaSeconds[gapIndex]/myWin.timeStepSeconds)) - 1
+		numFramesInGap := int(math.Round(myWin.sysTimeDeltaSeconds[gapIndex]/myWin.frameTimeSeconds)) - 1
 		numDroppedFrames += numFramesInGap
 	}
 	return numGaps, numCadenceErrors, numDroppedFrames
@@ -840,7 +973,7 @@ func (f *forcedVariant) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) col
 }
 
 func processFileSliderMove(position float64) {
-	trace("")
+	//trace("")
 	myWin.fileIndex = int(position)
 	myWin.fileLabel.SetText(myWin.fitsFilePaths[myWin.fileIndex])
 	myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
@@ -868,7 +1001,7 @@ func showMetaData() {
 }
 
 func displayFitsImage() fyne.CanvasObject {
-	trace("")
+	//trace("")
 	myWin.fileLabel.SetText(myWin.fitsFilePaths[myWin.fileIndex])
 
 	// A side effect of the next call is that myWin.displayBuffer is filled.
@@ -914,7 +1047,7 @@ func displayFitsImage() fyne.CanvasObject {
 }
 
 func openFitsFile(fitsFilePath string) *fitsio.File {
-	trace("")
+	//trace("")
 	fileHandle, err1 := os.Open(fitsFilePath)
 	if err1 != nil {
 		errMsg := fmt.Errorf("os.Open() could not open %s: %w", fitsFilePath, err1)
@@ -968,7 +1101,7 @@ func initializeImages() {
 }
 
 func histogram(sample []byte, stride, cornerRow, cornerCol, size int) (hist []int) {
-	trace("")
+	//trace("")
 	hist = make([]int, 256)
 	for row := cornerRow; row < cornerRow+size; row++ {
 		for col := cornerCol; col < cornerCol+size; col++ {
@@ -988,7 +1121,7 @@ func reportROIsettings() {
 }
 
 func setSlider(hist []int, targetPercent int, sliderToSet string) {
-	trace("")
+	//trace("")
 	// Compute the pixel count (requiredPixelSum) we want the standard deviation bars to enclose
 	totalPixelCount := 0
 	for i := 0; i < len(hist); i++ {
@@ -1050,7 +1183,7 @@ func setSlider(hist []int, targetPercent int, sliderToSet string) {
 }
 
 func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string) {
-	trace("")
+	//trace("")
 	// An important side effect of this function: it fills the myWin.displayBuffer []byte
 
 	if filePath == droppedFrameString {
@@ -1125,7 +1258,7 @@ func getFitsImageFromFilePath(filePath string) (*canvas.Image, []string, string)
 }
 
 func makeDisplayBuffer(width, height int) {
-	trace("")
+	//trace("")
 	myWin.displayBuffer = make([]byte, width*height*myWin.bytesPerPixel)
 	myWin.workingBuffer = make([]byte, width*height*myWin.bytesPerPixel)
 	// Diagnostic print ...
@@ -1192,7 +1325,7 @@ func getFitsFilenames(folder string) []string {
 }
 
 func applyContrastControls(original, stretched []byte) {
-	trace("")
+	//trace("")
 	// stretched is modified.    original is untouched.
 	var floatVal float64
 	var scale float64

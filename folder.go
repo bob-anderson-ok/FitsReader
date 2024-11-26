@@ -17,7 +17,7 @@ import (
 )
 
 func changeFolderSeparatorToBackslash(path string) string {
-	trace(path)
+	//trace(path)
 	windowsPath := strings.Replace(path, "/", "\\", -1)
 	return windowsPath
 }
@@ -65,23 +65,7 @@ func processChosenFolderString(path string) {
 		folderToLookFor := path
 		addPathToHistory(folderToLookFor) // ... only adds path if not already there
 
-		// A 'tidy' func that removes invalid entries: ones that don't exist or non-directory
-		// This takes care of cases where the user moved or deleted a folder but the path
-		// is still present in the history.
-		var tidyFolderHistory []string
-		for _, folderToCheck := range myWin.fitsFolderHistory {
-			if pathExists(folderToCheck) {
-				if isDirectory(folderToCheck) {
-					tidyFolderHistory = append(tidyFolderHistory, folderToCheck)
-				} else {
-					continue
-				}
-			} else {
-				continue
-			}
-		}
-		myWin.fitsFolderHistory = tidyFolderHistory
-		saveFolderHistory()
+		tidyHistoryList()
 
 		myWin.fileIndex = 0
 		myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
@@ -97,6 +81,26 @@ func processChosenFolderString(path string) {
 		processNewFolder()
 		displayFitsImage()
 	}
+}
+
+func tidyHistoryList() {
+	// A 'tidy' func that removes invalid entries: ones that don't exist or non-directory
+	// This takes care of cases where the user moved or deleted a folder but the path
+	// is still present in the history.
+	var tidyFolderHistory []string
+	for _, folderToCheck := range myWin.fitsFolderHistory {
+		if pathExists(folderToCheck) {
+			if isDirectory(folderToCheck) {
+				tidyFolderHistory = append(tidyFolderHistory, folderToCheck)
+			} else {
+				continue
+			}
+		} else {
+			continue
+		}
+	}
+	myWin.fitsFolderHistory = tidyFolderHistory
+	saveFolderHistory()
 }
 
 func addPathToHistory(path string) {
@@ -150,7 +154,7 @@ func openNewFolderDialog(lastFitsFolderStr string) {
 }
 
 func isDirectory(path string) bool {
-	trace(path)
+	//trace(path)
 	fileInfo, err := os.Stat(path)
 	if err != nil {
 		return false
@@ -159,13 +163,14 @@ func isDirectory(path string) bool {
 }
 
 func pathExists(path string) bool {
-	trace(path)
+	//trace(path)
 	_, err := os.Stat(path)
 	return err == nil
 }
 
 func processFitsFolderPickedFromHistory(path string) {
 	trace(path)
+
 	log.Println("")
 	log.Printf("folder selected: %s\n", path)
 	initializeConfig(true)
@@ -300,16 +305,16 @@ func processFolderSelection(path string) {
 	myWin.fitsFilePaths = getFitsFilenames(path)
 	processNewFolder()
 
-	if myWin.addFlashTimestampsCheckbox.Checked {
-		myWin.leftGoalpostTimestamp = ""
-		myWin.rightGoalpostTimestamp = ""
-		readEdgeTimeFile(path)
-		if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
-			//buildFlashLightcurve()
-			addTimestampsToFitsFiles()
-
-		}
-	}
+	//if myWin.addFlashTimestampsCheckbox.Checked {
+	//	myWin.leftGoalpostTimestamp = ""
+	//	myWin.rightGoalpostTimestamp = ""
+	//	readEdgeTimeFile(path)
+	//	if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
+	//		//buildFlashLightcurve()
+	//		addTimestampsToFitsFiles()
+	//
+	//	}
+	//}
 }
 
 func saveFolderHistory() {
