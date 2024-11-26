@@ -37,6 +37,7 @@ func processFitsFolderSelectedByFolderDialog(path fyne.ListableURI, err error) {
 func processChosenListableURI(path fyne.ListableURI) {
 	trace(path.Path())
 	myWin.folderSelected = changeFolderSeparatorToBackslash(path.Path())
+	myWin.cmdLineFolder = myWin.folderSelected
 	log.Println("")
 	log.Printf("Folder selected: %s", myWin.folderSelected)
 	processChosenFolderString(myWin.folderSelected)
@@ -51,6 +52,7 @@ func processChosenFolderString(path string) {
 
 		myWin.App.Preferences().SetString("lastFitsFolder", path)
 
+		myWin.numDroppedFrames = 0
 		myWin.fitsFilePaths = getFitsFilenames(path)
 		if len(myWin.fitsFilePaths) == 0 {
 			dialog.ShowInformation("Oops",
@@ -93,15 +95,6 @@ func processChosenFolderString(path string) {
 	}
 	if len(myWin.fitsFilePaths) > 0 {
 		processNewFolder()
-		//getFrameTimeFromSystemTimestamps(true)
-		//if myWin.addFlashTimestampsCheckbox.Checked {
-		//	//if true {
-		//	displayFitsImage()
-		//	readEdgeTimeFile(path)
-		//	if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
-		//		buildFlashLightcurve()
-		//	}
-		//}
 		displayFitsImage()
 	}
 }
@@ -179,6 +172,7 @@ func processFitsFolderPickedFromHistory(path string) {
 
 	myWin.autoContrastNeeded = true
 
+	myWin.numDroppedFrames = 0
 	myWin.fitsFilePaths = getFitsFilenames(path)
 	if len(myWin.fitsFilePaths) == 0 {
 		dialog.ShowInformation("Oops",
@@ -188,9 +182,9 @@ func processFitsFolderPickedFromHistory(path string) {
 		return
 	}
 	myWin.folderSelected = path
+	myWin.cmdLineFolder = myWin.folderSelected
 	myWin.fileIndex = 0
 	myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
-	//fmt.Printf("%d fits files were found.\n", len(myWin.fitsFilePaths))
 	myWin.fitsImages = []*canvas.Image{}
 	myWin.timestamps = []string{}
 	myWin.metaData = [][]string{}
@@ -199,18 +193,9 @@ func processFitsFolderPickedFromHistory(path string) {
 	initializeImages()
 	myWin.fileSlider.SetValue(0)
 
-	processNewFolder()
 	if len(myWin.fitsFilePaths) > 0 {
 		displayFitsImage()
 	}
-
-	// New policy - never redo the timestamps on folders that have already been processed
-	//if myWin.leftGoalpostTimestamp != "" && myWin.rightGoalpostTimestamp != "" {
-	//	buildFlashLightcurve()
-	//}
-	//if myWin.addFlashTimestampsCheckbox.Checked {
-	//	buildFlashLightcurve()
-	//}
 }
 
 func openFileBrowser() {
@@ -257,9 +242,6 @@ func readEdgeTimeFile(path string) {
 		msg := fmt.Sprintf("Could not find edge time file @ %s\n", filePath)
 		dialog.ShowInformation("Edge time file error:", msg, myWin.parentWindow)
 	} else {
-		//msg := fmt.Sprintf("edge time file found at: %s\n", filePath)
-		//dialog.ShowInformation("Edge time file report:", msg, myWin.parentWindow)
-
 		content, err := os.ReadFile(filePath) // Grab all the file in one gulp of []byte
 		if err != nil {
 			msg := fmt.Sprintf("Attempt to read edge time file gave error: %s\n", err)
@@ -292,9 +274,6 @@ func readEdgeTimeFile(path string) {
 			} else {
 				myWin.leftGoalpostTimestamp = onTimes[0]
 				myWin.rightGoalpostTimestamp = onTimes[len(onTimes)-1]
-				//msg := fmt.Sprintf("left goalpost occurred @  %s\n\n", myWin.leftGoalpostTimestamp)
-				//msg += fmt.Sprintf("right goalpost occurred @  %s\n\n", myWin.rightGoalpostTimestamp)
-				//dialog.ShowInformation("Goalpost timestamp report:", msg, myWin.parentWindow)
 			}
 		}
 	}
@@ -303,12 +282,12 @@ func readEdgeTimeFile(path string) {
 func processFolderSelection(path string) {
 	trace(path)
 	if myWin.deletePathCheckbox.Checked {
-		//fmt.Printf("Selection occurred while in Delete mode, so removing entry %s\n", path)
 		myWin.fitsFolderHistory = removePath(myWin.fitsFolderHistory, path)
 		saveFolderHistory()
 		path = ""
 	}
 	myWin.folderSelected = path
+	myWin.cmdLineFolder = myWin.folderSelected
 
 	if path != "" {
 		addPathToHistory(path) // ... only adds path if not already there
@@ -317,6 +296,7 @@ func processFolderSelection(path string) {
 	myWin.selectionMade = true
 	myWin.folderSelectWin.Close()
 
+	myWin.numDroppedFrames = 0
 	myWin.fitsFilePaths = getFitsFilenames(path)
 	processNewFolder()
 

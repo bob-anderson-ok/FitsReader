@@ -97,6 +97,7 @@ type Config struct {
 	fitsFilePaths              []string
 	fitsFolderHistory          []string
 	numFiles                   int
+	numDroppedFrames           int
 	waitingForFileRead         bool
 	fitsImages                 []*canvas.Image
 	leftGoalpostTimestamp      string
@@ -117,7 +118,7 @@ type Config struct {
 	hist                       []int
 }
 
-const version = " 1.4.8"
+const version = " 1.4.9"
 
 const droppedFrameString = "droppedFrameString"
 
@@ -202,7 +203,7 @@ func main() {
 	log.SetOutput(logFile)
 	//log.SetOutput(os.Stdout)  // Uncomment this to send all logs to console instead of a file
 	log.SetFlags(log.LstdFlags) // Add date and time as prefix
-	log.Println("IOTA Fits Utility started...")
+	log.Printf("IOTA Fits Utility %s started...", version)
 	log.SetFlags(0) // Turn off all log prefixes
 	log.Println("")
 
@@ -223,6 +224,9 @@ func main() {
 
 	if len(os.Args) > 1 {
 		myWin.cmdLineFolder = os.Args[1]
+		if !strings.HasSuffix(myWin.cmdLineFolder, "\\") {
+			myWin.cmdLineFolder = myWin.cmdLineFolder + "\\"
+		}
 		log.Println("")
 		log.Println("IotaGFTapp (or user) gave folder to process on command line as:", myWin.cmdLineFolder)
 		log.Println("")
@@ -302,13 +306,11 @@ func main() {
 
 	leftItem.Add(layout.NewSpacer())
 
-	//leftItem.Add(widget.NewButton("Build flash lightcurve", func() { buildFlashLightcurve() }))
 	leftItem.Add(widget.NewButton("Do timestamp insertion", func() { addTimestampsToFitsFiles() }))
 	myWin.addFlashTimestampsCheckbox = widget.NewCheck("enable auto-timestamp-insertion", toggleAutoAddTimestampsCheckbox)
 	checkState := myWin.App.Preferences().BoolWithFallback("EnableAutoTimestampInsertion", true)
 	myWin.addFlashTimestampsCheckbox.SetChecked(checkState)
 	leftItem.Add(myWin.addFlashTimestampsCheckbox)
-	//leftItem.Add(widget.NewButton("Timestamp FITS files", func() { addTimestampsToFitsFiles() }))
 
 	leftItem.Add(layout.NewSpacer())
 	myWin.roiCheckbox = widget.NewCheck("Apply ROI", applyRoi)
@@ -399,7 +401,7 @@ func processProgramClosed() {
 	trace("")
 	log.Println("")
 	log.SetFlags(log.LstdFlags)
-	log.Println("... IOTA FITS Utility closed.")
+	log.Printf("... IOTA FITS Utility %s closed.", version)
 	err := copyFile(logFileName, myWin.folderSelected+"\\"+logFileName)
 	if err != nil {
 		log.Printf(err.Error())
@@ -466,124 +468,17 @@ func convertImageToGray(img image.Image) (grayImage image.Image) {
 //	return nil
 //}
 
-//func buildFlashLightcurve() {
-//	trace("")
-//
-//	if !processNewFolder() {
-//		log.Println("processNewFolder failed.")
-//	}
-//
-//	if myWin.numFiles == 0 {
-//		return // There are no frames to process
-//	}
-//	if myWin.loopStartIndex >= 0 && myWin.loopEndIndex >= 0 {
-//		askIfLoopPointsAreToBeUsed()
-//		return
-//	} else {
-//		myWin.lightCurveStartIndex = 0
-//		myWin.lightCurveEndIndex = myWin.numFiles - 1
-//	}
-//	runLightcurveAcquisition()
-//	addTimestampsToFitsFiles()
-//	myWin.leftGoalpostTimestamp = ""
-//	myWin.rightGoalpostTimestamp = ""
-//}
-
-func runLightcurveAcquisition() {
-	//fmt.Printf("\n\nframes indexed from %d to %d inclusive will be used to build flash lightcurve\n",
-	//	myWin.lightCurveStartIndex, myWin.lightCurveEndIndex)
-	trace("")
-	myWin.lightcurve = []float64{} // Clear the lightcurve slice
-	myWin.lcIndices = []int{}      // and the corresponding file indices
-
-	myWin.sysTimes = []time.Time{} // Slice to hold SharpCap reported system times
-
-	// This displays the first frame as a side effect, but only if the slider changes value, so we force that.
-	myWin.fileSlider.SetValue(float64(myWin.lightCurveEndIndex))
-
-	// During the "play forward", a lightcurve will be calculated whenever the following flag is true
-	myWin.buildLightcurve = true
-	myWin.fileSlider.SetValue(float64(myWin.lightCurveStartIndex))
-
-	// Normally, we invoke playForward as a go routine (go playForward) so that the pause button can be used.
-	// Here we don't do this so that the generation of the lightcurve, once started, cannot be paused.
-	playLightcurveForward()
-	myWin.buildLightcurve = false
-
-	findFlashEdges()
-}
-
-//func alreadyHasIotaTimestamps(processedStr string) bool {
-//	f, err := os.OpenFile(myWin.fitsFilePaths[0], os.O_RDONLY, 0644)
-//	if err != nil {
-//		log.Fatalf("could not open file: %+v", err)
-//	}
-//
-//	fits, err := fitsio.Open(f)
-//	if err != nil {
-//		log.Fatalf("\nCould not open FITS file: %+v\n", err)
-//	}
-//
-//	hdu := fits.HDU(0)
-//	dateObsCard := hdu.Header().Get("DATE-OBS")
-//	f.Close()
-//	if dateObsCard == nil {
-//		return false
-//	}
-//
-//	return dateObsCard.Comment == processedStr
-//}
-
 func toggleAutoAddTimestampsCheckbox(_ bool) {
 	trace("")
 	myWin.App.Preferences().SetBool("EnableAutoTimestampInsertion", myWin.addFlashTimestampsCheckbox.Checked)
 }
 
-//func getFrameTimeFromSystemTimestamps(haveLightcurve bool) (bool, int) {
-//	for _, frameFile := range myWin.fitsFilePaths {
-//		if frameFile == droppedFrameString {
-//			continue
-//		}
-//		f, err := os.OpenFile(frameFile, os.O_RDWR, 0644)
-//		if err != nil {
-//			log.Fatalf("could not open file: %+v", err)
-//		}
-//
-//		fits, err := fitsio.Open(f)
-//
-//		if err != nil {
-//			log.Printf("\nCould not open FITS file: %+v\n", err)
-//			return false, 0
-//		}
-//
-//		hdu := fits.HDU(0)
-//
-//		dateObsCard := hdu.Header().Get("DATE-OBS")
-//		if dateObsCard == nil {
-//			// A SharpCap capture always has a DATE-OBS card. We depend on this, so
-//			// cannot proceed if missing
-//			log.Println("\nCould not find a DATE-OBS card. This is required.")
-//			return false, 0
-//		}
-//
-//		sysTimeString := fmt.Sprintf("%v", dateObsCard.Value) + "Z"
-//		sysTime, err := time.Parse(time.RFC3339, sysTimeString)
-//		if err != nil {
-//			log.Printf("\nCould not parse sysTimeString %s: %+v\n", sysTimeString, err)
-//			return false, 0
-//		}
-//		myWin.sysTimes = append(myWin.sysTimes, sysTime)
-//	}
-//	// The following call updates myWin.timeStepSeconds, detects drop and cadence errors
-//	numDroppedFrames := analyzeTimeStepsAndImproveFrameTimeEstimate(haveLightcurve)
-//	showTimePlot()
-//	return true, numDroppedFrames
-//}
-
 func addTimestampsToFitsFiles() {
 	trace("")
 
-	readEdgeTimeFile(myWin.folderSelected)
+	// All GUI folder selections get written to this variable, so there is no difference in the
+	// processing of a folder supplied on the command line and one selected via the GUI
+	readEdgeTimeFile(myWin.cmdLineFolder)
 
 	log.Printf("\n left goalpost edge at %0.6f\n", myWin.leftGoalpostStats.edgeAt)
 	log.Printf("right goalpost edge at %0.6f\n", myWin.rightGoalpostStats.edgeAt)
@@ -601,17 +496,6 @@ func addTimestampsToFitsFiles() {
 	} else {
 		log.Println("right goalpost occurred @", rightFlashTime)
 	}
-
-	//deltaFlashTime := rightFlashTime.Sub(leftFlashTime)
-	//var frameTime float64
-	//if frameTimeFromSystemTimestampsIsValid {
-	//	frameTime = myWin.timeStepSeconds
-	//	log.Printf("\nframe time (from system timestamps): %0.6f\n\n", frameTime)
-	//} else {
-	//	frameTime = float64(deltaFlashTime.Nanoseconds()) / 1_000_000_000 /
-	//		(myWin.rightGoalpostStats.edgeAt - myWin.leftGoalpostStats.edgeAt + float64(numDroppedFrames))
-	//	log.Printf("\nframe time (from flash edges): %0.6f\n\n", frameTime)
-	//}
 
 	frameTime := myWin.timeStepSeconds
 
@@ -670,11 +554,14 @@ func addTimestampsToFitsFiles() {
 		// Find index of first "DATE-OBS" card and note if it is from SharpCap
 		// If it is from SharpCap, we want to insert ours just above this point to preserve history.
 		// If it is from us, we will allow an overwrite of the timestamp to allow for repeat insertions
-		var indexOfSharpCapDateObsCard = -1
-		for i, card := range cardList {
+		var iotaDateObsPresent = false
+		for _, card := range cardList {
 			if card.Name == "DATE-OBS" {
-				if card.Comment != processedByIotaUtilities { // Implies it came from SharpCap
-					indexOfSharpCapDateObsCard = i
+				if card.Comment == processedByIotaUtilities { // Our card is first in the DATE-OBS sequence
+					iotaDateObsPresent = true
+					break
+				} else {
+					//indexOfSharpCapDateObsCard = i
 					break
 				}
 			}
@@ -683,10 +570,10 @@ func addTimestampsToFitsFiles() {
 		dateObsCardSlice := make([]fitsio.Card, 1)
 		guOffsetCardSlice := make([]fitsio.Card, 1)
 
-		if indexOfSharpCapDateObsCard == -1 { // First DATE-OBS card is from us
+		if iotaDateObsPresent { // First DATE-OBS card is from us
 			hdu.Header().Set("DATE-OBS", myWin.timestamps[k], processedByIotaUtilities)
 		} else {
-			// Make a DATE-OBS card. Put it in a slice so that we can use slice.Concat()
+			// Make a DATE-OBS card. Put it in a slice so that we can use slice.Concat() later
 			dateObsCard = new(fitsio.Card)
 			dateObsCard.Name = "DATE-OBS"
 			dateObsCard.Value = myWin.timestamps[k]
@@ -703,6 +590,7 @@ func addTimestampsToFitsFiles() {
 				break
 			}
 		}
+
 		// Make a GUOFFSET card
 		if indexOfguOffsetCard == -1 {
 			guOffsetCard := new(fitsio.Card)
@@ -718,10 +606,10 @@ func addTimestampsToFitsFiles() {
 		for i, card := range cardList {
 			if card.Name == "DATE-OBS" || card.Name == "END" {
 				newCardList = cardList[0:i]
-				if indexOfSharpCapDateObsCard != -1 { // There is a new card
+				if !iotaDateObsPresent { // We need to insert a DATE-OBS card from us
 					newCardList = slices.Concat(newCardList, dateObsCardSlice)
 				}
-				if indexOfguOffsetCard == -1 { // There is a new card
+				if indexOfguOffsetCard == -1 { // There is a new card GUOFFSET card to be added
 					newCardList = slices.Concat(newCardList, guOffsetCardSlice)
 				}
 				newCardList = slices.Concat(newCardList, cardList[i:])
@@ -786,15 +674,10 @@ func isGoodFrame(delta float64) bool {
 	return delta >= goodFrameLow && delta <= goodFrameHigh
 }
 
-//func isCadenceError(delta float64) bool {
-//	cadenceHigh := myWin.timeStepSeconds * 1.2
-//	cadenceLow := myWin.timeStepSeconds * 0.8
-//	return delta > cadenceHigh || delta < cadenceLow
-//}
-
 func processNewFolder() bool {
 	trace("")
 
+	myWin.numDroppedFrames = 0
 	myWin.sysTimes = []time.Time{}
 	myWin.lightcurve = []float64{}
 	for _, frameFile := range myWin.fitsFilePaths {
@@ -845,12 +728,19 @@ func processNewFolder() bool {
 	// finds dropped frames and rewrites both the fits file path list and the lightcurve
 	// to incorporate the dropped frames. It returns the number of dropped frames which we may
 	// want to popup in an alert box
-	numDroppedFrames := analyzeTimeStepsAndImproveFrameTimeEstimate(true)
-	if numDroppedFrames != 0 {
-		dialog.ShowInformation("Dropped frames report", "Some frames were dropped", myWin.parentWindow)
+	myWin.numDroppedFrames = analyzeTimeStepsAndImproveFrameTimeEstimate(true)
+
+	myWin.fileSlider.Max = float64(len(myWin.fitsFilePaths) - 1)
+	myWin.numFiles += myWin.numDroppedFrames
+	if myWin.numDroppedFrames != 0 {
+		dialog.ShowInformation("Dropped frames report",
+			fmt.Sprintf("%d frames were dropped", myWin.numDroppedFrames), myWin.parentWindow)
 	}
 	showTimePlot()
 	showFlashLightcurve()
+	if myWin.addFlashTimestampsCheckbox.Checked {
+		addTimestampsToFitsFiles()
+	}
 	return true
 }
 
@@ -932,6 +822,7 @@ func initializeConfig(running bool) {
 	myWin.waitingForFileRead = false
 	myWin.selectionMade = false
 	myWin.numFiles = 0
+	myWin.numDroppedFrames = 0
 	myWin.fileIndex = 0
 	myWin.autoPlayEnabled = false
 	myWin.currentFilePath = ""
@@ -1294,7 +1185,7 @@ func getFitsFilenames(folder string) []string {
 			}
 		}
 	}
-	myWin.numFiles = len(fitsPaths)
+	myWin.numFiles = len(fitsPaths) + myWin.numDroppedFrames
 	myWin.fileSlider.Max = float64(myWin.numFiles - 1)
 	myWin.fileSlider.Min = 0.0
 	return fitsPaths
@@ -1344,7 +1235,6 @@ func applyContrastControls(original, stretched []byte) {
 
 func showSplash() {
 	trace("")
-	//time.Sleep(500 * time.Millisecond)
 	helpWin := myWin.App.NewWindow("Hello")
 	helpWin.Resize(fyne.Size{Height: 450, Width: 700})
 	scrollableText := container.NewVScroll(widget.NewRichTextWithText(helpText))

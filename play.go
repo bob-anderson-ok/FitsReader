@@ -71,7 +71,7 @@ func playForward(loop bool) {
 	if loop {
 		endPoint = myWin.loopEndIndex
 	} else {
-		endPoint = myWin.numFiles - 1
+		endPoint = len(myWin.fitsFilePaths) - 1
 	}
 
 	if myWin.autoPlayEnabled { // This deals with the user re-clicking the play > button
@@ -205,7 +205,7 @@ func processBackOneFrame() {
 }
 
 func processForwardOneFrame() {
-	numFrames := myWin.numFiles
+	numFrames := len(myWin.fitsFilePaths)
 	if numFrames == 0 {
 		return
 	}

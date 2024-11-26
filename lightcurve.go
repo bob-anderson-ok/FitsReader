@@ -2,11 +2,8 @@ package main
 
 import (
 	"FITSreader/fitsio"
-	"fmt"
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/canvas"
-	"fyne.io/fyne/v2/dialog"
-	"fyne.io/fyne/v2/widget"
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/font"
 	"gonum.org/v1/plot/plotter"
@@ -16,12 +13,6 @@ import (
 )
 
 func showFlashLightcurve() {
-
-	//n := len(myWin.lightcurve)
-	//if n == 0 {
-	//	readEdgeTimeFile(myWin.folderSelected)
-	//	buildFlashLightcurve()
-	//}
 
 	buildPlot() // Writes flashLightcurve.png in current working directory
 
@@ -123,30 +114,30 @@ func buildTimePlot() {
 	}
 }
 
-func askIfLoopPointsAreToBeUsed() {
-	startFrameWidget := widget.NewEntry()
-	endFrameWidget := widget.NewEntry()
-	startFrameWidget.Text = fmt.Sprintf("%d", myWin.loopStartIndex)
-	endFrameWidget.Text = fmt.Sprintf("%d", myWin.loopEndIndex)
-	item1 := widget.NewFormItem("start index", startFrameWidget)
-	item2 := widget.NewFormItem("end index", endFrameWidget)
-	items := []*widget.FormItem{item1, item2}
-	loopPointQuery := dialog.NewForm("Should loop start and end indices be used\n"+
-		"to bracket lightcurve?", "Use", "Don't use", items,
-		func(useLoopPoints bool) { processLoopPointUsageAnswer(useLoopPoints) }, myWin.parentWindow)
-	loopPointQuery.Show()
-}
+//func askIfLoopPointsAreToBeUsed() {
+//	startFrameWidget := widget.NewEntry()
+//	endFrameWidget := widget.NewEntry()
+//	startFrameWidget.Text = fmt.Sprintf("%d", myWin.loopStartIndex)
+//	endFrameWidget.Text = fmt.Sprintf("%d", myWin.loopEndIndex)
+//	item1 := widget.NewFormItem("start index", startFrameWidget)
+//	item2 := widget.NewFormItem("end index", endFrameWidget)
+//	items := []*widget.FormItem{item1, item2}
+//	loopPointQuery := dialog.NewForm("Should loop start and end indices be used\n"+
+//		"to bracket lightcurve?", "Use", "Don't use", items,
+//		func(useLoopPoints bool) { processLoopPointUsageAnswer(useLoopPoints) }, myWin.parentWindow)
+//	loopPointQuery.Show()
+//}
 
-func processLoopPointUsageAnswer(useLoopPoints bool) {
-	if useLoopPoints {
-		myWin.lightCurveStartIndex = myWin.loopStartIndex
-		myWin.lightCurveEndIndex = myWin.loopEndIndex
-	} else {
-		myWin.lightCurveStartIndex = 0
-		myWin.lightCurveEndIndex = myWin.numFiles - 1
-	}
-	runLightcurveAcquisition()
-}
+//func processLoopPointUsageAnswer(useLoopPoints bool) {
+//	if useLoopPoints {
+//		myWin.lightCurveStartIndex = myWin.loopStartIndex
+//		myWin.lightCurveEndIndex = myWin.loopEndIndex
+//	} else {
+//		myWin.lightCurveStartIndex = 0
+//		myWin.lightCurveEndIndex = myWin.numFiles - 1
+//	}
+//	runLightcurveAcquisition()
+//}
 
 func pixelSum() float64 {
 	var pixelSum float64
