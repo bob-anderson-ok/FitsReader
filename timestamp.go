@@ -8,16 +8,24 @@ import (
 )
 
 func findFlashEdges() {
+	const flashRegion = 35
 	log.Println("")
 	log.Println("================= flash edge detection ===================")
 	fc := myWin.lightcurve // Shortened name for flash lightcurve
-	maxFlashLevel, _ := maxInSlice(fc)
-	minFlashLevel, _ := minInSlice(fc)
+
+	maxFlashLevel, _ := maxInSlice(fc[0:flashRegion])
+	minFlashLevel, _ := minInSlice(fc[0:flashRegion])
 	midFlashLevel := (maxFlashLevel + minFlashLevel) / 2.0
 
 	myWin.leftGoalpostStats = new(EdgeStats)
 	extractEdgeTimeAndStats(fc, "left", midFlashLevel, myWin.leftGoalpostStats)
 	log.Printf("first edge at %0.6f\n", myWin.leftGoalpostStats.edgeAt)
+
+	start := len(fc) - flashRegion
+	end := len(fc)
+	maxFlashLevel, _ = maxInSlice(fc[start:end])
+	minFlashLevel, _ = minInSlice(fc[start:end])
+	midFlashLevel = (maxFlashLevel + minFlashLevel) / 2.0
 
 	myWin.rightGoalpostStats = new(EdgeStats)
 	extractEdgeTimeAndStats(fc, "right", midFlashLevel, myWin.rightGoalpostStats)
