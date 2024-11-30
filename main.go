@@ -35,7 +35,7 @@ type Config struct {
 	numYpixels                 int64
 	numPixels                  int64
 	flashIntensityValid        bool
-	leapSecondString           string
+	gpsUtcOffsetString         string
 	cmdLineFolder              string
 	reportCount                int
 	buildLightcurve            bool
@@ -125,7 +125,7 @@ type Config struct {
 	hist                       []int
 }
 
-const version = "1.5.4"
+const version = "1.5.5"
 
 const maxAllowedFlashLevel = 200.0
 
@@ -613,12 +613,11 @@ func addTimestampsToFitsFiles() {
 				} else {
 					cardList[i].Name = "OBS-DATE"
 				}
-				//break
 			}
 		}
 
 		dateObsCardSlice := make([]fitsio.Card, 1)
-		leapSecondCardSlice := make([]fitsio.Card, 1)
+		guOffsetCardSlice := make([]fitsio.Card, 1)
 		frameTimeCardSlice := make([]fitsio.Card, 1)
 		deadTimeCardSlice := make([]fitsio.Card, 1)
 		dateErrCardSlice := make([]fitsio.Card, 1)
@@ -634,23 +633,23 @@ func addTimestampsToFitsFiles() {
 			dateObsCardSlice[0] = *dateObsCard
 		}
 
-		// Check LEAP-SEC card already present
-		leapSecondCardPresent := false
+		// Check GUOFFSET card already present
+		guOffsetCardPresent := false
 		for _, card := range cardList {
-			if card.Name == "LEAP-SEC" {
-				leapSecondCardPresent = true
-				hdu.Header().Set("LEAP-SEC", myWin.leapSecondString, "Leap second adjustment")
+			if card.Name == "GUOFFSET" {
+				guOffsetCardPresent = true
+				hdu.Header().Set("GUOFFSET", myWin.gpsUtcOffsetString, "GPS UTC offset")
 				break
 			}
 		}
 
 		// Make a GUOFFSET card
-		if !leapSecondCardPresent {
-			leapSecondCard := new(fitsio.Card)
-			leapSecondCard.Name = "LEAP-SEC"
-			leapSecondCard.Value = myWin.leapSecondString
-			leapSecondCard.Comment = "Leap second adjustment"
-			leapSecondCardSlice[0] = *leapSecondCard
+		if !guOffsetCardPresent {
+			guOffsetCard := new(fitsio.Card)
+			guOffsetCard.Name = "GUOFFSET"
+			guOffsetCard.Value = myWin.gpsUtcOffsetString
+			guOffsetCard.Comment = "GPS UTC offset"
+			guOffsetCardSlice[0] = *guOffsetCard
 		}
 
 		// Check FRM-TIME card already present
@@ -723,7 +722,7 @@ func addTimestampsToFitsFiles() {
 		// card immediately before the first DATE-OBS card, or OBS-DATE card, or the END card, whichever comes first.
 		var newCardList []fitsio.Card
 		for i, card := range cardList {
-			if card.Name == "DATE-OBS" || card.Name == "END" {
+			if card.Name == "DATE-OBS" || card.Name == "OBS-DATE" || card.Name == "END" {
 				newCardList = cardList[0:i]
 				if !iotaDateObsPresent { // We need to insert a DATE-OBS card from us
 					newCardList = slices.Concat(newCardList, dateObsCardSlice)
@@ -737,8 +736,8 @@ func addTimestampsToFitsFiles() {
 				if !deadTimeCardPresent {
 					newCardList = slices.Concat(newCardList, deadTimeCardSlice)
 				}
-				if !leapSecondCardPresent { // There is a new LEAP-SEC card to be added
-					newCardList = slices.Concat(newCardList, leapSecondCardSlice)
+				if !guOffsetCardPresent { // There is a new GUOFFSET card to be added
+					newCardList = slices.Concat(newCardList, guOffsetCardSlice)
 				}
 				newCardList = slices.Concat(newCardList, cardList[i:])
 				break

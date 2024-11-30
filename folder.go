@@ -259,7 +259,7 @@ func readEdgeTimeFile(path string) {
 				if strings.Contains(line, "|") { // Valid IotaGFT edge time format
 					if strings.Contains(line, "on") {
 						parts := strings.Split(line, "|")
-						myWin.leapSecondString = parts[1]
+						myWin.gpsUtcOffsetString = parts[1]
 						onLineParts := strings.Split(parts[0], "on  ")
 						onTimes = append(onTimes, onLineParts[1])
 					}
