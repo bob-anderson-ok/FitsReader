@@ -8,24 +8,57 @@ import (
 )
 
 func findFlashEdges() {
-	const flashRegion = 35
+	const baseZone = 8
+	//const flashRegion = 35
 	log.Println("")
 	log.Println("================= flash edge detection ===================")
 	fc := myWin.lightcurve // Shortened name for flash lightcurve
 
-	maxFlashLevel, _ := maxInSlice(fc[0:flashRegion])
-	minFlashLevel, _ := minInSlice(fc[0:flashRegion])
-	midFlashLevel := (maxFlashLevel + minFlashLevel) / 2.0
+	baseStdDev, _ := stats.StandardDeviationPopulation(fc[0:baseZone])
+	baseMean, _ := stats.Mean(fc[0:baseZone])
+	var maxFlashLevel float64
+	var midFlashLevel float64
+	var foundMaxFlashLevel = false
+	for i := range len(fc) {
+		if fc[i] > 4*baseStdDev+baseMean {
+			if i+2 < len(fc) {
+				maxFlashLevel = fc[i+2]
+				foundMaxFlashLevel = true
+				break
+			} else if i+1 < len(fc) {
+				maxFlashLevel = fc[i+1]
+				foundMaxFlashLevel = true
+				break
+			} else {
+				maxFlashLevel = fc[i]
+				foundMaxFlashLevel = true
+				break
+			}
+		}
+	}
+
+	if foundMaxFlashLevel {
+		midFlashLevel = (maxFlashLevel + baseMean) / 2.0
+	} else {
+		// Fatal condition in findFlashEdges
+		log.Println("")
+		log.Println("      flash edge detection failed")
+		return
+	}
+
+	//maxFlashLevel, _ := maxInSlice(fc[0:flashRegion])
+	//minFlashLevel, _ := minInSlice(fc[0:flashRegion])
+	//midFlashLevel := (maxFlashLevel + minFlashLevel) / 2.0
 
 	myWin.leftGoalpostStats = new(EdgeStats)
 	extractEdgeTimeAndStats(fc, "left", midFlashLevel, myWin.leftGoalpostStats)
 	log.Printf("first edge at %0.6f\n", myWin.leftGoalpostStats.edgeAt)
 
-	start := len(fc) - flashRegion
-	end := len(fc)
-	maxFlashLevel, _ = maxInSlice(fc[start:end])
-	minFlashLevel, _ = minInSlice(fc[start:end])
-	midFlashLevel = (maxFlashLevel + minFlashLevel) / 2.0
+	//start := len(fc) - flashRegion
+	//end := len(fc)
+	//maxFlashLevel, _ = maxInSlice(fc[start:end])
+	//minFlashLevel, _ = minInSlice(fc[start:end])
+	//midFlashLevel = (maxFlashLevel + minFlashLevel) / 2.0
 
 	myWin.rightGoalpostStats = new(EdgeStats)
 	extractEdgeTimeAndStats(fc, "right", midFlashLevel, myWin.rightGoalpostStats)
@@ -276,28 +309,28 @@ func getRightFlashEdge(fc []float64, midFlashLevel float64) (rightWing []float64
 	return rightWing, lastFlashBottomStart
 }
 
-func maxInSlice(data []float64) (biggest float64, index int) {
-	// data cannot be empty - there is no error check - panic will occur if empty
-	biggest = data[0]
-	index = 0
-	for i := 1; i < len(data); i++ {
-		if data[i] > biggest {
-			biggest = data[i]
-			index = i
-		}
-	}
-	return biggest, index
-}
+//func maxInSlice(data []float64) (biggest float64, index int) {
+//	// data cannot be empty - there is no error check - panic will occur if empty
+//	biggest = data[0]
+//	index = 0
+//	for i := 1; i < len(data); i++ {
+//		if data[i] > biggest {
+//			biggest = data[i]
+//			index = i
+//		}
+//	}
+//	return biggest, index
+//}
 
-func minInSlice(data []float64) (smallest float64, index int) {
-	// data cannot be empty - there is no error check - panic will occur if empty
-	smallest = data[0]
-	index = 0
-	for i := 1; i < len(data); i++ {
-		if data[i] < smallest {
-			smallest = data[i]
-			index = i
-		}
-	}
-	return smallest, index
-}
+//func minInSlice(data []float64) (smallest float64, index int) {
+//	// data cannot be empty - there is no error check - panic will occur if empty
+//	smallest = data[0]
+//	index = 0
+//	for i := 1; i < len(data); i++ {
+//		if data[i] < smallest {
+//			smallest = data[i]
+//			index = i
+//		}
+//	}
+//	return smallest, index
+//}
