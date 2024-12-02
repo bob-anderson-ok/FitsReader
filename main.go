@@ -125,7 +125,7 @@ type Config struct {
 	hist                       []int
 }
 
-const version = "1.5.7"
+const version = "1.5.8"
 
 const maxAllowedFlashLevel = 200.0
 
@@ -658,7 +658,7 @@ func addTimestampsToFitsFiles() {
 			if card.Name == "FRM-TIME" {
 				frameTimeCardPresent = true
 				hdu.Header().Set("FRM-TIME",
-					fmt.Sprintf("%0.6f", myWin.frameTimeSeconds),
+					fmt.Sprintf("%0.7f", myWin.frameTimeSeconds),
 					"frame time (seconds")
 				break
 			}
@@ -721,6 +721,7 @@ func addTimestampsToFitsFiles() {
 		// We will form a complete new card list from the old one by inserting the new DATE-OBS
 		// card immediately before the first DATE-OBS card, or OBS-DATE card, or the END card, whichever comes first.
 		var newCardList []fitsio.Card
+		cardList = hdu.(*fitsio.PrimaryHDU).Hdr.Cards // Get possibily updated card list
 		for i, card := range cardList {
 			if card.Name == "DATE-OBS" || card.Name == "OBS-DATE" || card.Name == "END" {
 				newCardList = cardList[0:i]
@@ -842,6 +843,9 @@ func processNewFolder() bool {
 			log.Fatal("\nCould not find a DATE-OBS card in FITS file. This is required.")
 		}
 
+		// TODO Remove this special test (recover original sys times from already processed file)
+		//dateObsCard = hdu.Header().Get("OBS-DATE")
+
 		sysTimeString := fmt.Sprintf("%v", dateObsCard.Value) + "Z"
 		sysTime, err := time.Parse(time.RFC3339, sysTimeString)
 		if err != nil {
@@ -930,16 +934,18 @@ func improveTimeStepAndDetectTimingErrors(haveLightcurve bool) (int, int, int) {
 	}
 	myWin.fitsFilePaths = newFitsFilePaths
 
-	myWin.frameTimeSeconds, _ = stats.Mean(goodTimeSteps)
-	log.Println("\ntimeStepSeconds:", myWin.frameTimeSeconds, " (improved)")
-	log.Println("")
-
 	// Compute number of frames in each gap
 	var numDroppedFrames = 0
 	for _, gapIndex := range myWin.gapIndices {
 		numFramesInGap := int(math.Round(myWin.sysTimeDeltaSeconds[gapIndex]/myWin.frameTimeSeconds)) - 1
 		numDroppedFrames += numFramesInGap
 	}
+
+	observationTimeSpan := myWin.sysTimes[len(myWin.sysTimes)-1].Sub(myWin.sysTimes[0]).Seconds()
+	myWin.frameTimeSeconds = observationTimeSpan / float64(len(myWin.sysTimes)+numDroppedFrames-1)
+	log.Println("\ntimeStepSeconds:", myWin.frameTimeSeconds, " (improved)")
+	log.Println("")
+
 	return numGaps, numCadenceErrors, numDroppedFrames
 }
 
