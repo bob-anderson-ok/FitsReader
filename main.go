@@ -46,8 +46,11 @@ type Config struct {
 	whiteSet                   bool
 	lightcurve                 []float64
 	lcIndices                  []int
-	sysTimes                   []time.Time
+	sysStartTimes              []time.Time
+	sysEndTimes                []time.Time
 	sysTimeDeltaSeconds        []float64
+	sysExposureSeconds         []float64
+	sysDeadtimeSeconds         []float64
 	gapIndices                 []int
 	gapWidth                   []int
 	frameTimeSeconds           float64
@@ -125,7 +128,7 @@ type Config struct {
 	hist                       []int
 }
 
-const version = "1.5.8"
+const version = "1.5.9"
 
 const maxAllowedFlashLevel = 200.0
 
@@ -782,8 +785,14 @@ func addTimestampsToFitsFiles() {
 func analyzeTimeStepsAndImproveFrameTimeEstimate(haveLightcurve bool) int {
 	// Calculate sysTime deltas
 	myWin.sysTimeDeltaSeconds = []float64{}
-	for i := range len(myWin.sysTimes) - 1 {
-		myWin.sysTimeDeltaSeconds = append(myWin.sysTimeDeltaSeconds, myWin.sysTimes[i+1].Sub(myWin.sysTimes[i]).Seconds())
+	myWin.sysExposureSeconds = []float64{}
+	myWin.sysDeadtimeSeconds = []float64{}
+	for i := range len(myWin.sysStartTimes) - 1 {
+		myWin.sysTimeDeltaSeconds = append(myWin.sysTimeDeltaSeconds, myWin.sysStartTimes[i+1].Sub(myWin.sysStartTimes[i]).Seconds())
+		exposureTime := myWin.sysEndTimes[i].Sub(myWin.sysStartTimes[i]).Seconds()
+		myWin.sysExposureSeconds = append(myWin.sysExposureSeconds, exposureTime)
+		deadtime := myWin.sysStartTimes[i+1].Sub(myWin.sysEndTimes[i]).Seconds()
+		myWin.sysDeadtimeSeconds = append(myWin.sysDeadtimeSeconds, deadtime)
 	}
 
 	myWin.frameTimeSeconds, _ = stats.Median(myWin.sysTimeDeltaSeconds) // First approximation - will be updated
@@ -809,7 +818,7 @@ func processNewFolder() bool {
 	startNewLogFile()
 	log.Printf("\nProcessing: %s\n", myWin.folderSelected)
 	myWin.numDroppedFrames = 0
-	myWin.sysTimes = []time.Time{}
+	myWin.sysStartTimes = []time.Time{}
 	myWin.lightcurve = []float64{}
 	for _, frameFile := range myWin.fitsFilePaths {
 		f, err := os.OpenFile(frameFile, os.O_RDWR, 0644)
@@ -843,8 +852,16 @@ func processNewFolder() bool {
 			log.Fatal("\nCould not find a DATE-OBS card in FITS file. This is required.")
 		}
 
+		dateEndCard := hdu.Header().Get("DATE-END")
+		if dateEndCard == nil {
+			// A SharpCap capture always has a DATE-END card. We depend on this, so
+			// cannot proceed if missing
+			log.Println("\nCould not find a DATE-END card. This is required.")
+			log.Fatal("\nCould not find a DATE-END card in FITS file. This is required.")
+		}
+
 		// TODO Remove this special test (recover original sys times from already processed file)
-		//dateObsCard = hdu.Header().Get("OBS-DATE")
+		dateObsCard = hdu.Header().Get("OBS-DATE")
 
 		sysTimeString := fmt.Sprintf("%v", dateObsCard.Value) + "Z"
 		sysTime, err := time.Parse(time.RFC3339, sysTimeString)
@@ -852,7 +869,15 @@ func processNewFolder() bool {
 			log.Printf("\nCould not parse sysTimeString %s: %+v\n", sysTimeString, err)
 			return false
 		}
-		myWin.sysTimes = append(myWin.sysTimes, sysTime)
+		myWin.sysStartTimes = append(myWin.sysStartTimes, sysTime)
+
+		sysTimeString = fmt.Sprintf("%v", dateEndCard.Value) + "Z"
+		sysTime, err = time.Parse(time.RFC3339, sysTimeString)
+		if err != nil {
+			log.Printf("\nCould not parse sysTimeString %s: %+v\n", sysTimeString, err)
+			return false
+		}
+		myWin.sysEndTimes = append(myWin.sysEndTimes, sysTime)
 
 		// Compute lightcurve point
 		myWin.primaryHDU = hdu // Needed by pixelSum() as implicit argument
@@ -883,7 +908,7 @@ func processNewFolder() bool {
 		dialog.ShowInformation("Dropped frames report",
 			fmt.Sprintf("%d frames were dropped", myWin.numDroppedFrames), myWin.parentWindow)
 	}
-	showTimePlot()
+	showSysTimePlots()
 	showFlashLightcurve()
 
 	if myWin.addFlashTimestampsCheckbox.Checked {
@@ -941,8 +966,8 @@ func improveTimeStepAndDetectTimingErrors(haveLightcurve bool) (int, int, int) {
 		numDroppedFrames += numFramesInGap
 	}
 
-	observationTimeSpan := myWin.sysTimes[len(myWin.sysTimes)-1].Sub(myWin.sysTimes[0]).Seconds()
-	myWin.frameTimeSeconds = observationTimeSpan / float64(len(myWin.sysTimes)+numDroppedFrames-1)
+	observationTimeSpan := myWin.sysStartTimes[len(myWin.sysStartTimes)-1].Sub(myWin.sysStartTimes[0]).Seconds()
+	myWin.frameTimeSeconds = observationTimeSpan / float64(len(myWin.sysStartTimes)+numDroppedFrames-1)
 	log.Println("\ntimeStepSeconds:", myWin.frameTimeSeconds, " (improved)")
 	log.Println("")
 
