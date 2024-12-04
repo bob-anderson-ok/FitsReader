@@ -1,6 +1,9 @@
 package main
 
 import (
+	"fmt"
+	"time"
+
 	// "fmt"
 	"github.com/montanaflynn/stats"
 	"log"
@@ -46,19 +49,9 @@ func findFlashEdges() {
 		return
 	}
 
-	//maxFlashLevel, _ := maxInSlice(fc[0:flashRegion])
-	//minFlashLevel, _ := minInSlice(fc[0:flashRegion])
-	//midFlashLevel := (maxFlashLevel + minFlashLevel) / 2.0
-
 	myWin.leftGoalpostStats = new(EdgeStats)
 	extractEdgeTimeAndStats(fc, "left", midFlashLevel, myWin.leftGoalpostStats)
 	log.Printf("first edge at %0.6f\n", myWin.leftGoalpostStats.edgeAt)
-
-	//start := len(fc) - flashRegion
-	//end := len(fc)
-	//maxFlashLevel, _ = maxInSlice(fc[start:end])
-	//minFlashLevel, _ = minInSlice(fc[start:end])
-	//midFlashLevel = (maxFlashLevel + minFlashLevel) / 2.0
 
 	myWin.rightGoalpostStats = new(EdgeStats)
 	extractEdgeTimeAndStats(fc, "right", midFlashLevel, myWin.rightGoalpostStats)
@@ -202,14 +195,31 @@ func extractEdgeTimeAndStats(fc []float64, goalpost string, midFlashLevel float6
 	edgeStats.topStd = topStd
 	edgeStats.topMean = topMean
 
+	topThresholdForValidTransitionPoint := topMean - topStd          // Arbitrary criteria of  1 std
+	bottomThresholdForValidTransitionPoint := bottomMean + bottomStd // Arbitrary criteria of  1 std
+
 	averagePixelValueInTop := topMean / float64(myWin.numPixels)
 	log.Printf("average pixel value in top: %0.1f", averagePixelValueInTop)
 
-	p := fc[transitionPoint+startingIndex]
-	delta := (topMean - p) / (topMean - bottomMean)
+	indexOfTransitionPoint := transitionPoint + startingIndex
+	p := fc[indexOfTransitionPoint]
+	var delta float64
+	if bottomThresholdForValidTransitionPoint < p && p < topThresholdForValidTransitionPoint {
+		delta = (topMean - p) / (topMean - bottomMean)
+	} else {
+		delta = 0.0
+	}
 
 	edgeAt := float64(transitionPoint+startingIndex) + delta
 	edgeStats.edgeAt = edgeAt
+
+	systemTimeAtTransitionPoint := myWin.sysStartTimes[indexOfTransitionPoint]
+	timeCorrectionSeconds := delta * myWin.sysTimeDeltaSeconds[indexOfTransitionPoint]
+	systemTimeAtEdge := systemTimeAtTransitionPoint.Add(time.Duration(timeCorrectionSeconds * 1_000_000_000))
+	fmt.Println(systemTimeAtEdge, timeCorrectionSeconds)
+	sysUtcOffset := systemTimeAtEdge.Sub(systemTimeAtTransitionPoint)
+	fmt.Println("sysUtcOffset", sysUtcOffset)
+	// Calculate system time at edge from myWin.sysStartTimes
 
 	sigmaP := bottomStd + (topStd-bottomStd)*(1.0-delta)
 	pSNR := p / sigmaP
@@ -237,6 +247,8 @@ func extractEdgeTimeAndStats(fc []float64, goalpost string, midFlashLevel float6
 	if debugPrint {
 		log.Printf("\nA: %0.4f  B: %0.4f\n", bottomMean, topMean)
 		log.Printf("sigmaA: %0.4f  sigmaB: %0.4f\n", bottomStd, topStd)
+		log.Printf("transition point thresholds:  bottom %0.4f   top %0.4f\n",
+			bottomThresholdForValidTransitionPoint, topThresholdForValidTransitionPoint)
 		log.Printf("p: %0.4f  delta: %0.6f\n", p, delta)
 		log.Printf("edge of intermediate point: %0.6f\n", edgeAt)
 		log.Printf("sigmaP: %0.4f  pSNR: %0.4f\n", sigmaP, pSNR)

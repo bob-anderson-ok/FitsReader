@@ -27,10 +27,10 @@ func showFlashLightcurve() {
 
 func showSysTimePlots() {
 
-	buildTimePlot()          // Writes timestampPlot.png in current working directory
-	buildDeadtimePlot()      // Writes deadtimePlot.png
-	buildFrameDeltasPlot()   // Writes frameDeltasPlot.png
-	buildExposureTimesPlot() // Writes exposureTimesPlot.png
+	buildStartTimePlot() // Writes timestampPlot.png in current working directory
+	//buildDeadtimePlot()      // Writes deadtimePlot.png
+	buildFrameDeltasPlot() // Writes frameDeltasPlot.png
+	//buildExposureTimesPlot() // Writes exposureTimesPlot.png
 
 	timestampWin := myWin.App.NewWindow("system timestamp plot")
 	timestampWin.Resize(fyne.Size{Height: 500, Width: 1500})
@@ -39,12 +39,12 @@ func showSysTimePlots() {
 	timestampWin.CenterOnScreen()
 	timestampWin.Show()
 
-	deadTimeWin := myWin.App.NewWindow("dead time plot")
-	deadTimeWin.Resize(fyne.Size{Height: 500, Width: 1500})
-	deadTimeImage := canvas.NewImageFromFile("deadtimePlot.png")
-	deadTimeWin.SetContent(deadTimeImage)
-	deadTimeWin.CenterOnScreen()
-	deadTimeWin.Show()
+	//deadTimeWin := myWin.App.NewWindow("dead time plot")
+	//deadTimeWin.Resize(fyne.Size{Height: 500, Width: 1500})
+	//deadTimeImage := canvas.NewImageFromFile("deadtimePlot.png")
+	//deadTimeWin.SetContent(deadTimeImage)
+	//deadTimeWin.CenterOnScreen()
+	//deadTimeWin.Show()
 
 	frameDeltasWin := myWin.App.NewWindow("frame to frame time deltas plot")
 	frameDeltasWin.Resize(fyne.Size{Height: 500, Width: 1500})
@@ -53,12 +53,12 @@ func showSysTimePlots() {
 	frameDeltasWin.CenterOnScreen()
 	frameDeltasWin.Show()
 
-	exposureTimesWin := myWin.App.NewWindow("exposure times plot")
-	exposureTimesWin.Resize(fyne.Size{Height: 500, Width: 1500})
-	exposureTimesImage := canvas.NewImageFromFile("exposureTimesPlot.png")
-	exposureTimesWin.SetContent(exposureTimesImage)
-	exposureTimesWin.CenterOnScreen()
-	exposureTimesWin.Show()
+	//exposureTimesWin := myWin.App.NewWindow("exposure times plot")
+	//exposureTimesWin.Resize(fyne.Size{Height: 500, Width: 1500})
+	//exposureTimesImage := canvas.NewImageFromFile("exposureTimesPlot.png")
+	//exposureTimesWin.SetContent(exposureTimesImage)
+	//exposureTimesWin.CenterOnScreen()
+	//exposureTimesWin.Show()
 }
 
 func buildPlot() {
@@ -102,7 +102,7 @@ func sysTimeToSeconds(t time.Time) float64 {
 	return float64(seconds) + float64(nanoseconds)/1_000_000_000.0
 }
 
-func buildTimePlot() {
+func buildStartTimePlot() {
 
 	n := len(myWin.sysStartTimes)
 	if n == 0 {

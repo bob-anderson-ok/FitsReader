@@ -235,7 +235,7 @@ func readEdgeTimeFile(path string) {
 	var filePath string
 
 	myWin.leftGoalpostTimestamp = ""
-	myWin.leftGoalpostTimestamp = ""
+	myWin.rightGoalpostTimestamp = ""
 
 	if strings.HasSuffix(path, "\\") {
 		filePath = path + edgeTimesFileName
