@@ -137,39 +137,39 @@ func buildStartTimePlot() {
 	}
 }
 
-func buildDeadtimePlot() {
-	n := len(myWin.sysDeadtimeSeconds)
-	if n == 0 {
-		return
-	}
-
-	myPts := make(plotter.XYs, n)
-	for i := range myPts {
-		myPts[i].X = float64(i)
-		myPts[i].Y = myWin.sysDeadtimeSeconds[i]
-	}
-
-	plot.DefaultFont = font.Font{Typeface: "Liberation", Variant: "Sans", Style: 0, Weight: 3, Size: font.Points(20)}
-
-	plt := plot.New()
-	plt.X.Min = 0
-	plt.X.Max = float64(n)
-	plt.Title.Text = "frame dead time plot"
-	plt.X.Label.Text = "reading number"
-	plt.Y.Label.Text = "dead time (seconds)"
-
-	plotutil.DefaultGlyphShapes[0] = plotutil.Shape(5) // set point shape to filled circle
-
-	err := plotutil.AddScatters(plt, myPts)
-	if err != nil {
-		panic(err)
-	}
-
-	err = plt.Save(21*vg.Inch, 6*vg.Inch, "deadtimePlot.png")
-	if err != nil {
-		panic(err)
-	}
-}
+//func buildDeadtimePlot() {
+//	n := len(myWin.sysDeadtimeSeconds)
+//	if n == 0 {
+//		return
+//	}
+//
+//	myPts := make(plotter.XYs, n)
+//	for i := range myPts {
+//		myPts[i].X = float64(i)
+//		myPts[i].Y = myWin.sysDeadtimeSeconds[i]
+//	}
+//
+//	plot.DefaultFont = font.Font{Typeface: "Liberation", Variant: "Sans", Style: 0, Weight: 3, Size: font.Points(20)}
+//
+//	plt := plot.New()
+//	plt.X.Min = 0
+//	plt.X.Max = float64(n)
+//	plt.Title.Text = "frame dead time plot"
+//	plt.X.Label.Text = "reading number"
+//	plt.Y.Label.Text = "dead time (seconds)"
+//
+//	plotutil.DefaultGlyphShapes[0] = plotutil.Shape(5) // set point shape to filled circle
+//
+//	err := plotutil.AddScatters(plt, myPts)
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	err = plt.Save(21*vg.Inch, 6*vg.Inch, "deadtimePlot.png")
+//	if err != nil {
+//		panic(err)
+//	}
+//}
 
 func buildFrameDeltasPlot() {
 	n := len(myWin.sysTimeDeltaSeconds)
@@ -205,39 +205,39 @@ func buildFrameDeltasPlot() {
 	}
 }
 
-func buildExposureTimesPlot() {
-	n := len(myWin.sysExposureSeconds)
-	if n == 0 {
-		return
-	}
-
-	myPts := make(plotter.XYs, n)
-	for i := range myPts {
-		myPts[i].X = float64(i)
-		myPts[i].Y = myWin.sysExposureSeconds[i]
-	}
-
-	plot.DefaultFont = font.Font{Typeface: "Liberation", Variant: "Sans", Style: 0, Weight: 3, Size: font.Points(20)}
-
-	plt := plot.New()
-	plt.X.Min = 0
-	plt.X.Max = float64(n)
-	plt.Title.Text = "exposure times"
-	plt.X.Label.Text = "reading number"
-	plt.Y.Label.Text = "exposure time (seconds)"
-
-	plotutil.DefaultGlyphShapes[0] = plotutil.Shape(5) // set point shape to filled circle
-
-	err := plotutil.AddScatters(plt, myPts)
-	if err != nil {
-		panic(err)
-	}
-
-	err = plt.Save(21*vg.Inch, 6*vg.Inch, "exposureTimesPlot.png")
-	if err != nil {
-		panic(err)
-	}
-}
+//func buildExposureTimesPlot() {
+//	n := len(myWin.sysExposureSeconds)
+//	if n == 0 {
+//		return
+//	}
+//
+//	myPts := make(plotter.XYs, n)
+//	for i := range myPts {
+//		myPts[i].X = float64(i)
+//		myPts[i].Y = myWin.sysExposureSeconds[i]
+//	}
+//
+//	plot.DefaultFont = font.Font{Typeface: "Liberation", Variant: "Sans", Style: 0, Weight: 3, Size: font.Points(20)}
+//
+//	plt := plot.New()
+//	plt.X.Min = 0
+//	plt.X.Max = float64(n)
+//	plt.Title.Text = "exposure times"
+//	plt.X.Label.Text = "reading number"
+//	plt.Y.Label.Text = "exposure time (seconds)"
+//
+//	plotutil.DefaultGlyphShapes[0] = plotutil.Shape(5) // set point shape to filled circle
+//
+//	err := plotutil.AddScatters(plt, myPts)
+//	if err != nil {
+//		panic(err)
+//	}
+//
+//	err = plt.Save(21*vg.Inch, 6*vg.Inch, "exposureTimesPlot.png")
+//	if err != nil {
+//		panic(err)
+//	}
+//}
 
 //func askIfLoopPointsAreToBeUsed() {
 //	startFrameWidget := widget.NewEntry()

@@ -128,7 +128,7 @@ type Config struct {
 	hist                       []int
 }
 
-const version = "1.6.0"
+const version = "1.6.1"
 
 const maxAllowedFlashLevel = 200.0
 
@@ -532,8 +532,6 @@ func addTimestampsToFitsFiles() {
 
 	frameTime := myWin.frameTimeSeconds
 
-	//frameTime = myWin.expTimeSeconds // TODO Validate this major change
-
 	log.Printf("\nframeTime: %0.6f ms (from goalpost edges)\n", frameTime*1000)
 	myWin.deadTimeSeconds = myWin.frameTimeSeconds - myWin.expTimeSeconds
 
@@ -790,12 +788,14 @@ func addTimestampsToFitsFiles() {
 	}
 
 	msg := fmt.Sprintf("\nAll timestamps have been added to the file.\n\n"+
-		"edge uncertainties include a dead time of %0.6f seconds\n\n"+
-		"left edge time uncertainty estimate: %0.6f seconds\n\n"+
-		"right edge uncertainty estimate: %0.6f seconds\n\n"+
-		"total edge uncertainty estimate: %0.6f seconds\n\n",
-		myWin.deadTimeSeconds,
-		myWin.leftGoalpostStats.totalTimeErr, myWin.rightGoalpostStats.totalTimeErr, myWin.dateErrSeconds)
+		"edge uncertainties include a dead time of %0.3f ms\n\n"+
+		"left edge time uncertainty estimate: %0.3f ms\n\n"+
+		"right edge uncertainty estimate: %0.3f ms\n\n"+
+		"total edge uncertainty estimate: %0.3f ms\n\n",
+		myWin.deadTimeSeconds*1000,
+		myWin.leftGoalpostStats.totalTimeErr*1000,
+		myWin.rightGoalpostStats.totalTimeErr*1000,
+		myWin.dateErrSeconds*1000)
 	dialog.ShowInformation("Add timestamps report:", msg, myWin.parentWindow)
 	closeLogFile()
 }
@@ -935,6 +935,7 @@ func processNewFolder() bool {
 		goImage = convertImageToGray(goImage)
 		myWin.lightcurve = append(myWin.lightcurve, pixelSum())
 	}
+	myWin.fileSlider.SetValue(0.0)
 
 	myWin.flashIntensityValid = true
 
