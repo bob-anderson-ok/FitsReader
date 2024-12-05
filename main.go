@@ -129,7 +129,7 @@ type Config struct {
 	hist                       []int
 }
 
-const version = "1.6.3"
+const version = "1.6.4"
 
 const maxAllowedFlashLevel = 200.0
 

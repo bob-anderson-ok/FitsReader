@@ -23,7 +23,7 @@ func findFlashEdges() {
 	var midFlashLevel float64
 	var foundMaxFlashLevel = false
 	for i := range len(fc) {
-		if fc[i] > 1.5*baseMean {
+		if fc[i] > 1.25*baseMean {
 			if i+2 < len(fc) {
 				maxFlashLevel = fc[i+2]
 				foundMaxFlashLevel = true
