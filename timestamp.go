@@ -17,13 +17,13 @@ func findFlashEdges() {
 	log.Println("================= flash edge detection ===================")
 	fc := myWin.lightcurve // Shortened name for flash lightcurve
 
-	baseStdDev, _ := stats.StandardDeviationPopulation(fc[0:baseZone])
+	//baseStdDev, _ := stats.StandardDeviationPopulation(fc[0:baseZone])
 	baseMean, _ := stats.Mean(fc[0:baseZone])
 	var maxFlashLevel float64
 	var midFlashLevel float64
 	var foundMaxFlashLevel = false
 	for i := range len(fc) {
-		if fc[i] > 4*baseStdDev+baseMean {
+		if fc[i] > 1.5*baseMean {
 			if i+2 < len(fc) {
 				maxFlashLevel = fc[i+2]
 				foundMaxFlashLevel = true
@@ -100,6 +100,10 @@ func getTransitionPointData(flashWing []float64) (meanBottom, stdBottom, meanTop
 	var a = 0
 	var b = 0
 	var maxDelta = 0.0
+
+	if len(flashWing) < 8 {
+		log.Fatal("flash wing too short")
+	}
 
 	for i := 0; i < len(flashWing)-2; i += 1 {
 		delta := flashWing[i+2] - flashWing[i]
@@ -320,29 +324,3 @@ func getRightFlashEdge(fc []float64, midFlashLevel float64) (rightWing []float64
 	rightWing = fc[lastFlashBottomStart : lastFlashTopEnd+1]
 	return rightWing, lastFlashBottomStart
 }
-
-//func maxInSlice(data []float64) (biggest float64, index int) {
-//	// data cannot be empty - there is no error check - panic will occur if empty
-//	biggest = data[0]
-//	index = 0
-//	for i := 1; i < len(data); i++ {
-//		if data[i] > biggest {
-//			biggest = data[i]
-//			index = i
-//		}
-//	}
-//	return biggest, index
-//}
-
-//func minInSlice(data []float64) (smallest float64, index int) {
-//	// data cannot be empty - there is no error check - panic will occur if empty
-//	smallest = data[0]
-//	index = 0
-//	for i := 1; i < len(data); i++ {
-//		if data[i] < smallest {
-//			smallest = data[i]
-//			index = i
-//		}
-//	}
-//	return smallest, index
-//}

@@ -88,6 +88,7 @@ type Config struct {
 	roiCheckbox                *widget.Check
 	deletePathCheckbox         *widget.Check
 	addFlashTimestampsCheckbox *widget.Check
+	showFrameOnSliderMove      bool
 	fileBrowserRequested       bool
 	setRoiButton               *widget.Button
 	parentWindow               fyne.Window
@@ -128,7 +129,7 @@ type Config struct {
 	hist                       []int
 }
 
-const version = "1.6.1"
+const version = "1.6.3"
 
 const maxAllowedFlashLevel = 200.0
 
@@ -695,7 +696,7 @@ func addTimestampsToFitsFiles() {
 			if card.Name == "DEADTIME" {
 				deadTimeCardPresent = true
 				hdu.Header().Set("DEADTIME",
-					fmt.Sprintf("%0.6f", myWin.deadTimeSeconds),
+					fmt.Sprintf("%0.7f", myWin.deadTimeSeconds),
 					"dead time (seconds")
 				break
 			}
@@ -704,7 +705,7 @@ func addTimestampsToFitsFiles() {
 		if !deadTimeCardPresent { // Make a DEADTIME card
 			deadTimeCard := new(fitsio.Card)
 			deadTimeCard.Name = "DEADTIME"
-			deadTimeCard.Value = fmt.Sprintf("%0.6f", myWin.deadTimeSeconds)
+			deadTimeCard.Value = fmt.Sprintf("%0.7f", myWin.deadTimeSeconds)
 			deadTimeCard.Comment = "frame time (seconds)"
 			deadTimeCardSlice[0] = *deadTimeCard
 		}
@@ -845,6 +846,7 @@ func processNewFolder() bool {
 	myWin.sysStartTimes = []time.Time{}
 	myWin.lightcurve = []float64{}
 	myWin.expTimeSeconds = 0.0
+	myWin.showFrameOnSliderMove = false
 	myWin.fileSlider.Max = float64(len(myWin.fitsFilePaths) - 1)
 	for k, frameFile := range myWin.fitsFilePaths {
 		myWin.fileSlider.SetValue(float64(k))
@@ -935,6 +937,7 @@ func processNewFolder() bool {
 		goImage = convertImageToGray(goImage)
 		myWin.lightcurve = append(myWin.lightcurve, pixelSum())
 	}
+	myWin.showFrameOnSliderMove = true
 	myWin.fileSlider.SetValue(0.0)
 
 	myWin.flashIntensityValid = true
@@ -1072,7 +1075,9 @@ func processFileSliderMove(position float64) {
 	myWin.fileIndex = int(position)
 	myWin.fileLabel.SetText(myWin.fitsFilePaths[myWin.fileIndex])
 	myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
-	displayFitsImage()
+	if myWin.showFrameOnSliderMove {
+		displayFitsImage()
+	}
 }
 
 func showMetaData() {
