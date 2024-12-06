@@ -10,8 +10,9 @@ import (
 	"math"
 )
 
-func findFlashEdges() {
+func findFlashEdges() bool {
 	const baseZone = 8
+	const flashThresholdFactor = 1.1
 	//const flashRegion = 35
 	log.Println("")
 	log.Println("================= flash edge detection ===================")
@@ -23,7 +24,7 @@ func findFlashEdges() {
 	var midFlashLevel float64
 	var foundMaxFlashLevel = false
 	for i := range len(fc) {
-		if fc[i] > 1.25*baseMean {
+		if fc[i] > flashThresholdFactor*baseMean {
 			if i+2 < len(fc) {
 				maxFlashLevel = fc[i+2]
 				foundMaxFlashLevel = true
@@ -46,7 +47,7 @@ func findFlashEdges() {
 		// Fatal condition in findFlashEdges
 		log.Println("")
 		log.Println("      flash edge detection failed")
-		return
+		return false
 	}
 
 	myWin.leftGoalpostStats = new(EdgeStats)
@@ -56,6 +57,8 @@ func findFlashEdges() {
 	myWin.rightGoalpostStats = new(EdgeStats)
 	extractEdgeTimeAndStats(fc, "right", midFlashLevel, myWin.rightGoalpostStats)
 	log.Printf("second edge at %0.6f\n", myWin.rightGoalpostStats.edgeAt)
+
+	return true
 }
 
 type EdgeStats struct {

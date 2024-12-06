@@ -23,6 +23,9 @@ func changeFolderSeparatorToBackslash(path string) string {
 }
 
 func processFitsFolderSelectedByFolderDialog(path fyne.ListableURI, err error) {
+	if path == nil { // User cancelled folder selection
+		return
+	}
 	trace(path.Path())
 	log.Println("")
 	log.Println("Note: Fyne error - uri is not listable - is normal and not a problem")

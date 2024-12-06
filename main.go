@@ -129,7 +129,7 @@ type Config struct {
 	hist                       []int
 }
 
-const version = "1.6.4"
+const version = "1.6.5"
 
 const maxAllowedFlashLevel = 200.0
 
@@ -953,7 +953,12 @@ func processNewFolder() bool {
 
 	myWin.fileSlider.Max = float64(len(myWin.fitsFilePaths) - 1)
 
-	findFlashEdges() // Checks flash intensity at top of left and right goalposts
+	flashFound := findFlashEdges() // Checks flash intensity at top of left and right goalposts
+
+	if !flashFound {
+		dialog.ShowInformation("Flash intensity report", "No flash goalposts found.", myWin.parentWindow)
+		return false
+	}
 
 	if !myWin.flashIntensityValid {
 		dialog.ShowInformation("Flash intensity report", "Flash intensity is too bright.", myWin.parentWindow)
@@ -1073,6 +1078,9 @@ func (f *forcedVariant) Color(name fyne.ThemeColorName, _ fyne.ThemeVariant) col
 func processFileSliderMove(position float64) {
 	//trace("")
 	myWin.fileIndex = int(position)
+	if myWin.fileIndex >= len(myWin.fitsFilePaths) {
+		return
+	}
 	myWin.fileLabel.SetText(myWin.fitsFilePaths[myWin.fileIndex])
 	myWin.currentFilePath = myWin.fitsFilePaths[myWin.fileIndex]
 	if myWin.showFrameOnSliderMove {
